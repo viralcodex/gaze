@@ -133,10 +133,9 @@ func sendImageData() {
 
 func getImageRect() {
 	cols, rows := tui.FitToRect(tui.Rect{
-		X: 1,
-		Y: 6,
+		Y: 4,
 		W: terminalState.Dimensions.Width,
-		H: terminalState.Dimensions.Height - 6,
+		H: terminalState.Dimensions.Height - 10,
 	})
 	img.Rect = ImageRect{
 		Cols: cols,

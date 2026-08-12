@@ -14,10 +14,10 @@ import (
 // }
 
 func drawButton(button *Element) {
-	topBorder := strings.Repeat("─", button.Rect.W-2)
-	bottomBorder := strings.Repeat("─", button.Rect.W-2)
+	outer := button.ComputedRect
+	content := button.ContentRect
 
-	innerWidth := button.Rect.W - 2
+	innerWidth := max(0, outer.W-2)
 	labelText := button.Label
 
 	if len(labelText) > innerWidth {
@@ -26,25 +26,60 @@ func drawButton(button *Element) {
 
 	leftPadding := (innerWidth - len(labelText)) / 2
 	rightPadding := innerWidth - len(labelText) - leftPadding
+
 	label := strings.Repeat(" ", leftPadding) + labelText + strings.Repeat(" ", rightPadding)
 
-	fmt.Printf("%s┌%s┐", cursorPosition(button.Rect.Y, button.Rect.X), topBorder)
-	fmt.Printf("%s│%s│", cursorPosition(button.Rect.Y+1, button.Rect.X), label)
-	fmt.Printf("%s└%s┘", cursorPosition(button.Rect.Y+2, button.Rect.X), bottomBorder)
-}
+	if button.Style.Border == None {
+		fmt.Printf("%s%s", cursorPosition(content.Y, content.X), label)
+		return
+	}
 
-func cursorPosition(row, col int) string {
-	return fmt.Sprintf("%s%d;%dH", CSI, row, col)
+	borderWidth := max(0, outer.W-2)
+	topBorder := strings.Repeat(string(button.Style.BorderChars.Top), borderWidth)
+	bottomBorder := strings.Repeat(string(button.Style.BorderChars.Bottom), borderWidth)
+
+	labelRow := content.Y
+
+	fmt.Printf("%s%s%s%s", cursorPosition(outer.Y, outer.X), string(button.Style.BorderChars.TopLeft), topBorder, string(button.Style.BorderChars.TopRight))
+
+	for r := outer.Y + 1; r < outer.Y+outer.H-1; r++ {
+		line := strings.Repeat(" ", innerWidth)
+
+		if r == labelRow {
+			line = label
+		}
+
+		fmt.Printf(
+			"%s%s%s%s",
+			cursorPosition(r, outer.X),
+			string(button.Style.BorderChars.Left),
+			line,
+			string(button.Style.BorderChars.Right),
+		)
+	}
+
+	fmt.Printf("%s%s%s%s", cursorPosition(outer.Y+outer.H-1, outer.X), string(button.Style.BorderChars.BottomLeft), bottomBorder, string(button.Style.BorderChars.BottomRight))
 }
 
 func drawImage(el *Element) {
-	cols, rows := FitToRect(el.Rect)
+	rect := el.ContentRect
+	cols, rows := FitToRect(rect)
 
 	if currentImage.NeedsUpload {
-		fmt.Print(cursorPosition(el.Rect.Y, el.Rect.X))
+		fmt.Print(cursorPosition(rect.Y, rect.X))
 		UploadImageData(cols, rows)
 		return
 	}
 
-	PlaceImage(el.Rect.X, el.Rect.Y, cols, rows)
+	PlaceImage(rect.X, rect.Y, cols, rows)
+}
+
+func drawBox(el *Element) {
+}
+
+func drawInput(el *Element) {
+}
+
+func cursorPosition(row, col int) string {
+	return fmt.Sprintf("%s%d;%dH", CSI, row, col)
 }

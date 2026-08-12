@@ -3,51 +3,72 @@ package viewer
 import (
 	"fmt"
 	"gaze/internal/tui"
-	"math"
 )
 
+var layoutStyle = tui.Style{
+	Position: tui.PositionRelative,
+}
+
+var buttonStyle = tui.Style{
+	Position: tui.PositionRelative,
+	Border:   tui.Auto,
+	BorderChars: tui.BorderChars{
+		Top:         '━',
+		TopLeft:     '┏',
+		TopRight:    '┓',
+		Bottom:      '━',
+		BottomLeft:  '┗',
+		BottomRight: '┛',
+		Left:        '┃',
+		Right:       '┃',
+	},
+	Padding: tui.Spacing{Left: 2, Right: 2, Top: 1, Bottom: 1},
+}
+
 func createLayout() {
+	buttonGroup := terminalState.Dimensions.Width - terminalState.Dimensions.Width % 4
+	buttonWidth := buttonGroup / 4
+
 	terminalState.Root = tui.AddElement(terminalState.Root,
-		tui.NewBox("buttons", tui.Rect{
-			X: 2,
-			Y: 2,
-			W: terminalState.Dimensions.Width - 2,
-			H: 4,
-		},
+		tui.NewBox("buttonGroup", tui.Rect{
+			W: buttonGroup,
+		}, layoutStyle,
 			tui.NewButton("zoom+", tui.Rect{
-				X: 2,
-				Y: 2,
-				W: int(math.Floor(float64(terminalState.Dimensions.Width)/3) - 1),
-				H: 3,
-			}, "+", func(el *tui.Element) {
-				fmt.Println("clicked", el.ID)
-			},
+				W: buttonWidth,
+			}, "+",
+				buttonStyle,
+				func(el *tui.Element, event tui.MouseEvent) {
+					fmt.Println("clicked", el.ID)
+				},
 			),
 			tui.NewButton("zoom-", tui.Rect{
-				X: int(math.Floor(float64(terminalState.Dimensions.Width)/3)) + 1,
-				Y: 2,
-				W: int(math.Floor(float64(terminalState.Dimensions.Width) / 3)),
-				H: 3,
-			}, "-", func(el *tui.Element) {
+				X: buttonWidth,
+				W: buttonWidth,
+			}, "-", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
 				fmt.Println("clicked", el.ID)
 			},
 			),
-			tui.NewButton("rotate", tui.Rect{
-				X: int(2*math.Floor(float64(terminalState.Dimensions.Width)/3)) + 1,
-				Y: 2,
-				W: int(math.Floor(float64(terminalState.Dimensions.Width) / 3)),
-				H: 3,
-			}, "+90deg", func(el *tui.Element) {
+			tui.NewButton("rotate+", tui.Rect{
+				X: 2 * buttonWidth,
+				W: buttonWidth,
+			}, "-90deg", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
+				fmt.Println("clicked", el.ID)
+			},
+			),
+			tui.NewButton("rotate-", tui.Rect{
+				X: 3 * buttonWidth,
+				W: buttonWidth,
+			}, "+90deg", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
 				fmt.Println("clicked", el.ID)
 			},
 			),
 		),
 		tui.NewImage("image", tui.Rect{
-			X: (terminalState.Dimensions.Width-img.Rect.Cols)/2 + 1,
-			Y: 6,
+			X: (terminalState.Dimensions.Width - img.Rect.Cols) / 2,
+			Y: (terminalState.Dimensions.Height + 10 - img.Rect.Rows) / 2,
 			W: terminalState.Dimensions.Width,
-			H: terminalState.Dimensions.Height - 6,
-		},
+			H: terminalState.Dimensions.Height - 10,
+		}, layoutStyle,
 		),
 	)
 }
@@ -55,7 +76,7 @@ func createLayout() {
 // TODO: change this impl later
 func updateLayout() {
 	updateTerminalDimensions()
-	terminalState.Root = tui.NewBox("root", tui.Rect{X: 1, Y: 1, W: terminalState.Dimensions.Width, H: terminalState.Dimensions.Height}, nil)
+	terminalState.Root = tui.NewBox("root", tui.Rect{X: 1, Y: 1, W: terminalState.Dimensions.Width, H: terminalState.Dimensions.Height}, layoutStyle)
 	getImageRect()
 	createLayout()
 }

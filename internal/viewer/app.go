@@ -55,7 +55,6 @@ func Run() error {
 
 	sendImageData()
 	getImageRect()
-	
 	createLayout()
 
 	requestRender()
@@ -72,7 +71,7 @@ func initViewerState(image Image) {
 			Width:  50,
 			Height: 50,
 		},
-		Root: tui.NewBox("root", tui.Rect{X: 1, Y: 1, W: terminalState.Dimensions.Width, H: terminalState.Dimensions.Height}, nil),
+		Root: tui.NewBox("root", tui.Rect{X: 1, Y: 1, W: terminalState.Dimensions.Width, H: terminalState.Dimensions.Height}, tui.Style{Position: tui.PositionRelative}, nil),
 	}
 }
 
@@ -163,5 +162,5 @@ func getFileArgs() (string, error) {
 }
 
 func requestRender() {
-	tui.Draw(terminalState.Root)
+	tui.Render(terminalState.Root)
 }
