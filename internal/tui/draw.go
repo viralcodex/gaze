@@ -17,20 +17,27 @@ func drawButton(button *Element) {
 	outer := button.ComputedRect
 	content := button.ContentRect
 
-	innerWidth := max(0, outer.W-2)
+	// innerWidth := max(0, outer.W-2)
 	labelText := button.Label
 
-	if len(labelText) > innerWidth {
-		labelText = labelText[:innerWidth]
+	//remove excess label text
+	if len(labelText) > content.W {
+		labelText = labelText[:content.W]
 	}
 
-	leftPadding := (innerWidth - len(labelText)) / 2
-	rightPadding := innerWidth - len(labelText) - leftPadding
+	leftPadding := (content.W - len(labelText)) / 2
+	rightPadding := content.W - len(labelText) - leftPadding
 
 	label := strings.Repeat(" ", leftPadding) + labelText + strings.Repeat(" ", rightPadding)
 
 	if button.Style.Border == None {
-		fmt.Printf("%s%s", cursorPosition(content.Y, content.X), label)
+		fmt.Printf("%s%s%s%s%s",
+			cursorPosition(content.Y, content.X),
+			foregroundColor(button.Style.fgColor),
+			backgroundColor(button.Style.bgColor),
+			label,
+			ResetStyle,
+		)
 		return
 	}
 
@@ -40,25 +47,45 @@ func drawButton(button *Element) {
 
 	labelRow := content.Y
 
-	fmt.Printf("%s%s%s%s", cursorPosition(outer.Y, outer.X), string(button.Style.BorderChars.TopLeft), topBorder, string(button.Style.BorderChars.TopRight))
+	fmt.Printf("%s%s%s%s%s%s%s",
+		cursorPosition(outer.Y, outer.X),
+		foregroundColor(button.Style.fgColor),
+		backgroundColor(button.Style.bgColor),
+		string(button.Style.BorderChars.TopLeft),
+		topBorder,
+		string(button.Style.BorderChars.TopRight),
+		ResetStyle,
+	)
 
 	for r := outer.Y + 1; r < outer.Y+outer.H-1; r++ {
-		line := strings.Repeat(" ", innerWidth)
+		line := strings.Repeat(" ", outer.W-2)
 
 		if r == labelRow {
-			line = label
+			labelOffset := content.X - (outer.X + 1)
+			line = line[:labelOffset] + label + line[labelOffset+len(label):]
 		}
 
 		fmt.Printf(
-			"%s%s%s%s",
+			"%s%s%s%s%s%s%s",
 			cursorPosition(r, outer.X),
+			foregroundColor(button.Style.fgColor),
+			backgroundColor(button.Style.bgColor),
 			string(button.Style.BorderChars.Left),
 			line,
 			string(button.Style.BorderChars.Right),
+			ResetStyle,
 		)
 	}
 
-	fmt.Printf("%s%s%s%s", cursorPosition(outer.Y+outer.H-1, outer.X), string(button.Style.BorderChars.BottomLeft), bottomBorder, string(button.Style.BorderChars.BottomRight))
+	fmt.Printf("%s%s%s%s%s%s%s",
+		cursorPosition(outer.Y+outer.H-1, outer.X),
+		foregroundColor(button.Style.fgColor),
+		backgroundColor(button.Style.bgColor),
+		string(button.Style.BorderChars.BottomLeft),
+		bottomBorder,
+		string(button.Style.BorderChars.BottomRight),
+		ResetStyle,
+	)
 }
 
 func drawImage(el *Element) {

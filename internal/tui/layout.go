@@ -20,6 +20,7 @@ func drawLayout(el *Element) {
 	case ElementImage:
 		drawImage(el)
 	}
+
 	for _, child := range el.Children {
 		drawLayout(child)
 	}

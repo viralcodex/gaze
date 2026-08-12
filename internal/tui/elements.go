@@ -1,5 +1,10 @@
 package tui
 
+import (
+	"fmt"
+	"strconv"
+)
+
 type ElementKind string
 type Position string
 type Border string
@@ -55,14 +60,21 @@ type State struct {
 	Disabled bool
 }
 
+type Color struct {
+	R, G, B uint8
+	Set     bool
+}
+
 type Style struct {
 	Border      Border
 	BorderChars BorderChars
 	Padding     Spacing
 	Margin      Spacing
-	Foreground  string
-	Background  string
 	Position    Position
+	Fg          string
+	Bg          string
+	fgColor     Color
+	bgColor     Color
 }
 
 type Element struct {
@@ -118,6 +130,10 @@ var defaultBorders = BorderChars{
 }
 
 func NewBox(id string, rect Rect, style Style, children ...*Element) *Element {
+	computedStyle, err := getStyle(&style)
+	if err != nil {
+		panic(err)
+	}
 	return &Element{
 		ID:       id,
 		Kind:     ElementBox,
@@ -126,11 +142,15 @@ func NewBox(id string, rect Rect, style Style, children ...*Element) *Element {
 		State: State{
 			Visible: true,
 		},
-		Style: getStyle(&style),
+		Style: computedStyle,
 	}
 }
 
 func NewButton(id string, rect Rect, label string, style Style, onClick func(*Element, MouseEvent)) *Element {
+	computedStyle, err := getStyle(&style)
+	if err != nil {
+		panic(err)
+	}
 	return &Element{
 		ID:      id,
 		Kind:    ElementButton,
@@ -140,11 +160,15 @@ func NewButton(id string, rect Rect, label string, style Style, onClick func(*El
 		State: State{
 			Visible: true,
 		},
-		Style: getStyle(&style),
+		Style: computedStyle,
 	}
 }
 
 func NewInput(id string, rect Rect, placeholder string, style Style, onInput func(*Element, KeyEvent)) *Element {
+	computedStyle, err := getStyle(&style)
+	if err != nil {
+		panic(err)
+	}
 	return &Element{
 		ID:          id,
 		Kind:        ElementInput,
@@ -154,11 +178,15 @@ func NewInput(id string, rect Rect, placeholder string, style Style, onInput fun
 		State: State{
 			Visible: true,
 		},
-		Style: getStyle(&style),
+		Style: computedStyle,
 	}
 }
 
-func NewText(id string, rect Rect, text string) *Element {
+func NewText(id string, rect Rect, style Style, text string) *Element {
+	computedStyle, err := getStyle(&style)
+	if err != nil {
+		panic(err)
+	}
 	return &Element{
 		ID:    id,
 		Kind:  ElementText,
@@ -167,10 +195,15 @@ func NewText(id string, rect Rect, text string) *Element {
 		State: State{
 			Visible: true,
 		},
+		Style: computedStyle,
 	}
 }
 
 func NewImage(id string, rect Rect, style Style) *Element {
+	computedStyle, err := getStyle(&style)
+	if err != nil {
+		panic(err)
+	}
 	return &Element{
 		ID:   id,
 		Kind: ElementImage,
@@ -178,7 +211,7 @@ func NewImage(id string, rect Rect, style Style) *Element {
 		State: State{
 			Visible: true,
 		},
-		Style: getStyle(&style),
+		Style: computedStyle,
 	}
 }
 
@@ -187,13 +220,27 @@ func AddElement(node *Element, children ...*Element) *Element {
 	return node
 }
 
-func getStyle(style *Style) Style {
+func getStyle(style *Style) (Style, error) {
 	if style.Border == Auto {
 		setBorderChars(style)
 	} else {
 		style.BorderChars = BorderChars{}
 	}
-	return *style
+
+	fgColor, err := parseHexColor(style.Fg)
+	if err != nil {
+		return Style{}, err
+	}
+
+	bgColor, err := parseHexColor(style.Bg)
+	if err != nil {
+		return Style{}, err
+	}
+
+	style.fgColor = fgColor
+	style.bgColor = bgColor
+
+	return *style, nil
 }
 
 func setBorderChars(style *Style) {
@@ -221,4 +268,26 @@ func setBorderChars(style *Style) {
 	if style.BorderChars.Right == 0 {
 		style.BorderChars.Right = defaultBorders.Right
 	}
+}
+
+func parseHexColor(color string) (Color, error) {
+	if color == "" {
+		return Color{}, nil
+	}
+	if len(color) > 7 || color[0] != '#' {
+		return Color{}, fmt.Errorf("Invalid Hex Color format")
+	}
+
+	raw, err := strconv.ParseUint(color[1:], 16, 24)
+
+	if err != nil {
+		return Color{}, fmt.Errorf("invalid color %q: %w", color, err)
+	}
+
+	return Color{
+		R:   uint8(raw >> 16),
+		G:   uint8(raw >> 8),
+		B:   uint8(raw),
+		Set: true,
+	}, nil
 }

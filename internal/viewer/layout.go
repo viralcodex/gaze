@@ -7,26 +7,48 @@ import (
 
 var layoutStyle = tui.Style{
 	Position: tui.PositionRelative,
+	Bg:       "#1E2428",
+	Fg:       "#E8ECEF",
 }
 
 var buttonStyle = tui.Style{
 	Position: tui.PositionRelative,
 	Border:   tui.Auto,
 	BorderChars: tui.BorderChars{
-		Top:         '━',
-		TopLeft:     '┏',
-		TopRight:    '┓',
-		Bottom:      '━',
-		BottomLeft:  '┗',
-		BottomRight: '┛',
-		Left:        '┃',
-		Right:       '┃',
+		Top:         '▄',
+		TopLeft:     '▗',
+		TopRight:    '▖',
+		Bottom:      '▀',
+		BottomLeft:  '▝',
+		BottomRight: '▘',
+		Left:        '▐',
+		Right:       '▌',
+	},
+	Padding: tui.Spacing{Left: 0, Right: 0, Top: 1, Bottom: 1},
+	Bg:      "#28434A",
+	Fg:      "#FFD166",
+}
+
+var buttonStyle2 = tui.Style{
+	Position: tui.PositionRelative,
+	Border:   tui.Auto,
+	BorderChars: tui.BorderChars{
+		Top:         '▄',
+		TopLeft:     '▗',
+		TopRight:    '▖',
+		Bottom:      '▀',
+		BottomLeft:  '▝',
+		BottomRight: '▘',
+		Left:        '▐',
+		Right:       '▌',
 	},
 	Padding: tui.Spacing{Left: 2, Right: 2, Top: 1, Bottom: 1},
+	Bg:      "#31535B",
+	Fg:      "#F4F7F8",
 }
 
 func createLayout() {
-	buttonGroup := terminalState.Dimensions.Width - terminalState.Dimensions.Width % 4
+	buttonGroup := terminalState.Dimensions.Width - terminalState.Dimensions.Width%4
 	buttonWidth := buttonGroup / 4
 
 	terminalState.Root = tui.AddElement(terminalState.Root,

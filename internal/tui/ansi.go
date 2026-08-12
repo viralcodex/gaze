@@ -1,5 +1,7 @@
 package tui
 
+import "fmt"
+
 const (
 	esc = "\x1b"
 	bel = "\x07"
@@ -23,4 +25,22 @@ const (
 	MouseEventScanFormat = CSI + "<%d;%d;%d%c"
 	PointerCursor        = OSC + "22;pointer" + bel
 	DefaultCursor        = OSC + "22;" + bel
+	ForegroundColor      = CSI + "38;2;%d;%d;%dm"
+	BackgroundColor      = CSI + "48;2;%d;%d;%dm"
+	ResetBackground      = CSI + "49m"
+	ResetStyle           = CSI + "0m"
 )
+
+func foregroundColor(color Color) string {
+	if !color.Set {
+		return ""
+	}
+	return fmt.Sprintf(ForegroundColor, color.R, color.G, color.B)
+}
+
+func backgroundColor(color Color) string {
+	if !color.Set {
+		return ""
+	}
+	return fmt.Sprintf(BackgroundColor, color.R, color.G, color.B)
+}
