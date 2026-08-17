@@ -23,8 +23,11 @@ const (
 	MouseSGREnable       = CSI + "?1006h"
 	MouseSGRDisable      = CSI + "?1006l"
 	MouseEventScanFormat = CSI + "<%d;%d;%d%c"
+	CursorPosition       = CSI + "%d;%dH"
 	PointerCursor        = OSC + "22;pointer" + bel
 	DefaultCursor        = OSC + "22;" + bel
+	ShowCursor           = CSI + "?25h"
+	HideCursor           = CSI + "?25l"
 	ForegroundColor      = CSI + "38;2;%d;%d;%dm"
 	BackgroundColor      = CSI + "48;2;%d;%d;%dm"
 	ResetBackground      = CSI + "49m"

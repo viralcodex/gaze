@@ -4,6 +4,26 @@ import (
 	"fmt"
 )
 
+type HitMap struct {
+	Width    int
+	Height   int
+	Cells    []uint32
+	Elements []*Element
+}
+
+type MouseState struct {
+	Hovered *Element
+	Pressed *Element
+}
+
+type MouseAction uint8
+
+const (
+	MouseMove MouseAction = iota
+	MousePress
+	MouseRelease
+)
+
 func ParseMouseEvent(input string) (MouseEvent, bool) {
 	var event MouseEvent
 	var keyPress rune
@@ -14,10 +34,14 @@ func ParseMouseEvent(input string) (MouseEvent, bool) {
 		return MouseEvent{}, false
 	}
 
-	motion := event.Button&32 != 0
-	noButton := event.Button&3 == 3
-
-	event.Press = keyPress == 'M' && !motion && !noButton
+	switch {
+	case keyPress == 'm':
+		event.Action = MouseRelease
+	case event.Button&32 != 0:
+		event.Action = MouseMove
+	default:
+		event.Action = MousePress
+	}
 
 	return event, true
 }
@@ -38,40 +62,74 @@ func HandleKeyEvent(event KeyEvent) bool {
 }
 
 func HandleMouseEvent(event MouseEvent) bool {
-	fmt.Print(cursorPosition(5, 1)) // row 3, column 1
-	fmt.Print(ClearLine)            // clear current line
-	fmt.Printf("Mouse data: key=%d x=%d y=%d pressed=%v\n", event.Button, event.X, event.Y, event.Press)
-	// isInsideButton := hitCheck(event.X, event.Y)
+	isDirty := false
+	current := hitMap.At(event.X, event.Y)
+	previous := mouseState.Hovered
 
-	// if event.Press {
-	// 	terminalState.button.pressed = isInsideButton
-	// 	return false
-	// }
+	//hover
+	if current != previous {
+		if previous != nil {
+			previous.State.Hovered = false
+			if previous.OnMouseOut != nil {
+				previous.OnMouseOut(previous, event)
+			}
+		}
 
-	// if terminalState.button.pressed {
-	// 	terminalState.button.pressed = false
-	// 	if isInsideButton && terminalState.button.onClick != nil {
-	// 		terminalState.button.onClick()
-	// 	}
-	// }
+		mouseState.Hovered = current
 
-	// if isInsideButton {
-	// 	fmt.Print(pointerCursor)
-	// } else {
-	// 	fmt.Print(defaultCursor)
-	// }
+		if current != nil {
+			current.State.Hovered = true
+			if current.OnMouseEnter != nil {
+				current.OnMouseEnter(current, event)
+			}
+		}
+		isDirty = true
+	}
+	//click
+	switch event.Action {
+	case MousePress:
+		mouseState.Pressed = current
+		if current != nil {
+			current.State.Pressed = true
+			isDirty = true
+		}
+	case MouseRelease:
+		pressed := mouseState.Pressed
+		if pressed != nil {
+			pressed.State.Pressed = false
+			isDirty = true
+		}
+		mouseState.Pressed = nil
 
-	// fmt.Print(cursorPosition(4, 1)) // row 3, column 1
-	// fmt.Print(clearLine)            // clear current line
-	// fmt.Printf("Button hovered: %v", isInsideButton)
+		if current != nil && current == pressed && current.OnClick != nil {
+			current.OnClick(current, event)
+		}
 
-	// return isInsideButton
-	return true
+	}
+
+	return isDirty
 }
 
-func hitCheck(rect Rect, x, y int) bool {
-	return x >= rect.X &&
-		x < rect.X+rect.W &&
-		y >= rect.Y &&
-		y < rect.Y+rect.H
+// func hitCheck(rect Rect, x, y int) bool {
+// 	return x >= rect.X &&
+// 		x < rect.X+rect.W &&
+// 		y >= rect.Y &&
+// 		y < rect.Y+rect.H
+// }
+
+func (m *HitMap) At(x, y int) *Element {
+	x--
+	y--
+
+	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
+		return nil
+	}
+
+	id := m.Cells[y*m.Width+x]
+
+	if id == 0 {
+		return nil
+	}
+
+	return m.Elements[id]
 }

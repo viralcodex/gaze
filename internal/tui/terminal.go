@@ -15,7 +15,7 @@ func EnterAltMode() {
 func EnableMouseEvents() {
 	fmt.Print(MouseClickEnable)  //enable mouse clicks
 	fmt.Print(MouseMotionEnable) //enable motion tracking
-	// fmt.Print(MouseSGREnable)    //enable SGR mode
+	fmt.Print(MouseSGREnable)    //enable SGR mode
 }
 
 func ExitAltMode() {
@@ -32,6 +32,14 @@ func ClearAltScreen() {
 	fmt.Print("\033[4;1H")
 	fmt.Print("\033[0J")
 	fmt.Print(ClearScreen)
+}
+
+func HideCursorPointer() {
+	fmt.Print(HideCursor)
+}
+
+func ShowCursorPointer() {
+	fmt.Print(ShowCursor)
 }
 
 func GetTerminalDimensions() (TerminalDimensions, error) {

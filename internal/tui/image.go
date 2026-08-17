@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math"
-	"os"
 )
 
 type ImageSource struct {
@@ -20,6 +19,7 @@ type ImageDimensions struct {
 }
 
 const chunkSize = 4096
+const imagePlacementID = 1
 
 var currentImage ImageSource
 
@@ -46,26 +46,29 @@ func UploadImageData(cols, rows int) error {
 			hasMoreFlag = 1
 		}
 
-		controlBytes := fmt.Sprintf("a=T,i=%d,f=100,t=d,c=%d,r=%d,m=%d", currentImage.ID, cols, rows, hasMoreFlag)
+		controlBytes := fmt.Sprintf("a=t,i=%d,f=100,t=d,m=%d", currentImage.ID, hasMoreFlag)
 
 		if offset > 0 {
 			controlBytes = fmt.Sprintf("m=%d", hasMoreFlag)
 		}
 
-		if _, err := fmt.Fprintf(os.Stdout, "%s%s;%s%s", KittyGraphicsStart, controlBytes, chunk, KittyGraphicsEnd); err != nil {
+		if err := frame.writeOut(fmt.Sprintf("%s%s;%s%s", KittyGraphicsStart, controlBytes, chunk, KittyGraphicsEnd)); err != nil {
 			return err
 		}
 	}
 	currentImage.NeedsUpload = false
+
 	return nil
 }
 
 func PlaceImage(x, y, cols, rows int) error {
-	fmt.Print(cursorPosition(y, x))
+	controlBytes := fmt.Sprintf("a=p,i=%d,p=%d,c=%d,r=%d", currentImage.ID, imagePlacementID, cols, rows)
 
-	controlBytes := fmt.Sprintf("a=p,i=%d,c=%d,r=%d", currentImage.ID, cols, rows)
-	_, err := fmt.Fprintf(os.Stdout, "%s%s;%s", KittyGraphicsStart, controlBytes, KittyGraphicsEnd)
-	return err
+	if err := frame.writeOut(cursorPosition(y, x), fmt.Sprintf("%s%s;%s", KittyGraphicsStart, controlBytes, KittyGraphicsEnd)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func FitToRect(rect Rect) (int, int) {

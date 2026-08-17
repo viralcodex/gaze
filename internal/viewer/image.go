@@ -24,7 +24,7 @@ type Image struct {
 	Dirty      bool
 	Uploaded   bool
 	Dimensions ImageDimensions
-	Rect ImageRect
+	Rect       ImageRect
 	State      ImageState
 }
 
@@ -135,19 +135,19 @@ func getImageRect() {
 	cols, rows := tui.FitToRect(tui.Rect{
 		Y: 4,
 		W: terminalState.Dimensions.Width,
-		H: terminalState.Dimensions.Height - 10,
+		H: terminalState.Dimensions.Height - 5,
 	})
 	img.Rect = ImageRect{
 		Cols: cols,
 		Rows: rows,
 	}
 }
-// these ops send the updated image data to tui (rendered = false)
-func zoomImage() {
 
+// these ops send the updated image data to tui (rendered = false)
+func zoomImage(el *tui.Element) {
 }
 
-func rotateImage() {
+func rotateImage(el *tui.Element) {
 
 }
 

@@ -5,22 +5,12 @@ import (
 	"strings"
 )
 
-// func draw(buf []byte, n int) {
-// 	fmt.Print(CursorHome) // home
-// 	fmt.Print(ClearLine)  // clear the line
-// 	// fmt.Printf("Terminal dimensions: %d x %d\r\n", viewer.TerminalState.Dimensions.Width, terminalState.Dimensions.Height)
-// 	fmt.Print(ClearLine) // clear the line
-// 	fmt.Printf("Read %d bytes Char: %q\r\n", n, string(buf))
-// }
-
 func drawButton(button *Element) {
 	outer := button.ComputedRect
 	content := button.ContentRect
-
-	// innerWidth := max(0, outer.W-2)
 	labelText := button.Label
 
-	//remove excess label text
+	//remove overflow label text
 	if len(labelText) > content.W {
 		labelText = labelText[:content.W]
 	}
@@ -30,11 +20,13 @@ func drawButton(button *Element) {
 
 	label := strings.Repeat(" ", leftPadding) + labelText + strings.Repeat(" ", rightPadding)
 
+	style := resolveStyle(button)
+
 	if button.Style.Border == None {
-		fmt.Printf("%s%s%s%s%s",
+		frame.writeOut(
 			cursorPosition(content.Y, content.X),
-			foregroundColor(button.Style.fgColor),
-			backgroundColor(button.Style.bgColor),
+			foregroundColor(style.fgColor),
+			backgroundColor(style.bgColor),
 			label,
 			ResetStyle,
 		)
@@ -42,18 +34,18 @@ func drawButton(button *Element) {
 	}
 
 	borderWidth := max(0, outer.W-2)
-	topBorder := strings.Repeat(string(button.Style.BorderChars.Top), borderWidth)
-	bottomBorder := strings.Repeat(string(button.Style.BorderChars.Bottom), borderWidth)
+	topBorder := strings.Repeat(string(style.BorderChars.Top), borderWidth)
+	bottomBorder := strings.Repeat(string(style.BorderChars.Bottom), borderWidth)
 
 	labelRow := content.Y
 
-	fmt.Printf("%s%s%s%s%s%s%s",
+	frame.writeOut(
 		cursorPosition(outer.Y, outer.X),
-		foregroundColor(button.Style.fgColor),
-		backgroundColor(button.Style.bgColor),
-		string(button.Style.BorderChars.TopLeft),
+		foregroundColor(style.fgColor),
+		backgroundColor(style.bgColor),
+		string(style.BorderChars.TopLeft),
 		topBorder,
-		string(button.Style.BorderChars.TopRight),
+		string(style.BorderChars.TopRight),
 		ResetStyle,
 	)
 
@@ -65,25 +57,24 @@ func drawButton(button *Element) {
 			line = line[:labelOffset] + label + line[labelOffset+len(label):]
 		}
 
-		fmt.Printf(
-			"%s%s%s%s%s%s%s",
+		frame.writeOut(
 			cursorPosition(r, outer.X),
-			foregroundColor(button.Style.fgColor),
-			backgroundColor(button.Style.bgColor),
-			string(button.Style.BorderChars.Left),
+			foregroundColor(style.fgColor),
+			backgroundColor(style.bgColor),
+			string(style.BorderChars.Left),
 			line,
-			string(button.Style.BorderChars.Right),
+			string(style.BorderChars.Right),
 			ResetStyle,
 		)
 	}
 
-	fmt.Printf("%s%s%s%s%s%s%s",
+	frame.writeOut(
 		cursorPosition(outer.Y+outer.H-1, outer.X),
-		foregroundColor(button.Style.fgColor),
-		backgroundColor(button.Style.bgColor),
-		string(button.Style.BorderChars.BottomLeft),
+		foregroundColor(style.fgColor),
+		backgroundColor(style.bgColor),
+		string(style.BorderChars.BottomLeft),
 		bottomBorder,
-		string(button.Style.BorderChars.BottomRight),
+		string(style.BorderChars.BottomRight),
 		ResetStyle,
 	)
 }
@@ -93,9 +84,9 @@ func drawImage(el *Element) {
 	cols, rows := FitToRect(rect)
 
 	if currentImage.NeedsUpload {
-		fmt.Print(cursorPosition(rect.Y, rect.X))
-		UploadImageData(cols, rows)
-		return
+		if err := UploadImageData(cols, rows); err != nil {
+			return
+		}
 	}
 
 	PlaceImage(rect.X, rect.Y, cols, rows)
@@ -108,5 +99,5 @@ func drawInput(el *Element) {
 }
 
 func cursorPosition(row, col int) string {
-	return fmt.Sprintf("%s%d;%dH", CSI, row, col)
+	return fmt.Sprintf(CursorPosition, row, col)
 }

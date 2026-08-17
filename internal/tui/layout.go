@@ -1,28 +1,32 @@
 package tui
 
-func Render(root *Element) {
-	computeLayout(root, &Rect{X: 0, Y: 0})
-	drawLayout(root)
+import (
+	"fmt"
+	"os"
+)
+
+var frame *Frame = &Frame{}
+var hitMap *HitMap
+var mouseState MouseState = MouseState{}
+
+func initGrid(root *Element) {
+	hitMap = &HitMap{
+		Width:    root.Rect.W,
+		Height:   root.Rect.H,
+		Cells:    make([]uint32, root.Rect.W*root.Rect.H),
+		Elements: []*Element{nil},
+	}
 }
 
-func drawLayout(el *Element) {
-	if el == nil || !el.State.Visible {
-		return
-	}
+func Render(root *Element) {
+	initGrid(root)
+	computeLayout(root, &Rect{X: 0, Y: 0})
+	buildHitMap(root)
+	drawLayout(root)
 
-	switch el.Kind {
-	case ElementBox:
-		drawBox(el)
-	case ElementButton:
-		drawButton(el)
-	case ElementInput:
-		drawInput(el)
-	case ElementImage:
-		drawImage(el)
-	}
-
-	for _, child := range el.Children {
-		drawLayout(child)
+	err := frame.flush(os.Stdout)
+	if err != nil {
+		fmt.Printf("An error occured while rendering: %v", err)
 	}
 }
 
@@ -102,6 +106,54 @@ func minContentSize(el *Element) Rect {
 	case ElementImage:
 		return Rect{W: 1, H: 1}
 	default:
-		return Rect{W: 0, H: 0}
+		return Rect{W: 1, H: 1}
+	}
+}
+
+func buildHitMap(el *Element) {
+	if el == nil || !el.State.Visible {
+		return
+	}
+
+	elementId := uint32(len(hitMap.Elements))
+	hitMap.Elements = append(hitMap.Elements, el)
+
+	computedRect := el.ComputedRect
+
+	x0 := max(0, computedRect.X-1)
+	y0 := max(0, computedRect.Y-1)
+	x1 := min(hitMap.Width, x0+computedRect.W)
+	y1 := min(hitMap.Height, y0+computedRect.H)
+
+	for y := y0; y < y1; y++ {
+		row := y * hitMap.Width
+		for x := x0; x < x1; x++ {
+			hitMap.Cells[row+x] = elementId
+		}
+	}
+
+	for _, child := range el.Children {
+		buildHitMap(child)
+	}
+}
+
+func drawLayout(el *Element) {
+	if el == nil || !el.State.Visible {
+		return
+	}
+
+	switch el.Kind {
+	case ElementBox:
+		drawBox(el)
+	case ElementButton:
+		drawButton(el)
+	case ElementInput:
+		drawInput(el)
+	case ElementImage:
+		drawImage(el)
+	}
+
+	for _, child := range el.Children {
+		drawLayout(child)
 	}
 }

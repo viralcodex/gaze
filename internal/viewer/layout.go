@@ -27,24 +27,15 @@ var buttonStyle = tui.Style{
 	Padding: tui.Spacing{Left: 0, Right: 0, Top: 1, Bottom: 1},
 	Bg:      "#28434A",
 	Fg:      "#FFD166",
-}
-
-var buttonStyle2 = tui.Style{
-	Position: tui.PositionRelative,
-	Border:   tui.Auto,
-	BorderChars: tui.BorderChars{
-		Top:         '━',
-		TopLeft:     '┏',
-		TopRight:    '┓',
-		Bottom:      '━',
-		BottomLeft:  '┗',
-		BottomRight: '┛',
-		Left:        '┃',
-		Right:       '┃',
+	Hover: &tui.Style{
+		Bg: "#31535B",
+		Fg: "#F4F7F8",
 	},
-	Padding: tui.Spacing{Left: 2, Right: 2, Top: 1, Bottom: 1},
-	Bg:      "#31535B",
-	Fg:      "#F4F7F8",
+
+	Press: &tui.Style{
+		Bg: "#FFD166",
+		Fg: "#1E2428",
+	},
 }
 
 func createLayout() {
@@ -60,36 +51,63 @@ func createLayout() {
 			}, "+",
 				buttonStyle,
 				func(el *tui.Element, event tui.MouseEvent) {
-					fmt.Println("clicked", el.ID)
+					zoomImage(el)
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;pointer\x07")
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;\x07")
 				},
 			),
 			tui.NewButton("zoom-", tui.Rect{
 				X: buttonWidth,
 				W: buttonWidth,
-			}, "-", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
-				fmt.Println("clicked", el.ID)
-			},
+			}, "-", buttonStyle,
+				func(el *tui.Element, e tui.MouseEvent) {
+					zoomImage(el)
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;pointer\x07")
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;\x07")
+				},
 			),
 			tui.NewButton("rotate+", tui.Rect{
 				X: 2 * buttonWidth,
 				W: buttonWidth,
-			}, "-90deg", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
-				fmt.Println("clicked", el.ID)
-			},
+			}, "-90deg", buttonStyle,
+				func(el *tui.Element, e tui.MouseEvent) {
+					rotateImage(el)
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;pointer\x07")
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;\x07")
+				},
 			),
 			tui.NewButton("rotate-", tui.Rect{
 				X: 3 * buttonWidth,
 				W: buttonWidth,
-			}, "+90deg", buttonStyle, func(el *tui.Element, e tui.MouseEvent) {
-				fmt.Println("clicked", el.ID)
-			},
+			}, "+90deg", buttonStyle,
+				func(el *tui.Element, e tui.MouseEvent) {
+					rotateImage(el)
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;pointer\x07")
+				},
+				func(el *tui.Element, e tui.MouseEvent) {
+					fmt.Print("\x1b]22;\x07")
+				},
 			),
 		),
 		tui.NewImage("image", tui.Rect{
 			X: (terminalState.Dimensions.Width - img.Rect.Cols) / 2,
-			Y: (terminalState.Dimensions.Height + 10 - img.Rect.Rows) / 2,
+			Y: (terminalState.Dimensions.Height + 5 - img.Rect.Rows) / 2,
 			W: terminalState.Dimensions.Width,
-			H: terminalState.Dimensions.Height - 10,
+			H: terminalState.Dimensions.Height - 5,
 		}, layoutStyle,
 		),
 	)

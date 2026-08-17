@@ -47,11 +47,14 @@ func Run() error {
 	tui.EnterAltMode()
 	defer tui.ExitAltMode()
 
+	tui.HideCursorPointer()
+	defer tui.ShowCursorPointer()
+
 	tui.EnableMouseEvents()
 	defer tui.DisableMouseEvents()
 
 	initViewerState(image)
-	updateTerminalDimensions()
+	// updateTerminalDimensions()
 
 	sendImageData()
 	getImageRect()
@@ -64,15 +67,21 @@ func Run() error {
 }
 
 func initViewerState(image Image) {
-	img = image
 	terminalState = TerminalState{
-		Event: tui.Event{},
-		Dimensions: tui.TerminalDimensions{
-			Width:  50,
-			Height: 50,
-		},
-		Root: tui.NewBox("root", tui.Rect{X: 1, Y: 1, W: terminalState.Dimensions.Width, H: terminalState.Dimensions.Height}, tui.Style{Position: tui.PositionRelative}, nil),
+		Event:      tui.Event{},
 	}
+
+	updateTerminalDimensions()
+
+	img = image
+
+	terminalState.Root = tui.NewBox("root", tui.Rect{
+			X: 1,
+			Y: 1,
+			W: terminalState.Dimensions.Width,
+			H: terminalState.Dimensions.Height,
+		}, tui.Style{},
+	)
 }
 
 func eventLoop() {
@@ -100,7 +109,7 @@ func eventLoop() {
 						Button: event.Button,
 						X:      event.X,
 						Y:      event.Y,
-						Press:  event.Press,
+						Action: event.Action,
 					},
 				}
 				continue

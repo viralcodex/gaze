@@ -75,6 +75,21 @@ type Style struct {
 	Bg          string
 	fgColor     Color
 	bgColor     Color
+
+	Hover *Style
+	Press *Style
+}
+
+type EventStyle struct {
+	Border      Border
+	BorderChars BorderChars
+	Padding     Spacing
+	Margin      Spacing
+	Position    Position
+	Fg          string
+	Bg          string
+	fgColor     Color
+	bgColor     Color
 }
 
 type Element struct {
@@ -90,9 +105,10 @@ type Element struct {
 	Style    Style
 	Children []*Element
 
-	OnClick func(*Element, MouseEvent)
-	OnHover func(*Element)
-	OnInput func(*Element, KeyEvent)
+	OnClick      func(*Element, MouseEvent)
+	OnMouseEnter func(*Element, MouseEvent)
+	OnMouseOut   func(*Element, MouseEvent)
+	OnInput      func(*Element, KeyEvent)
 }
 
 type TerminalDimensions struct {
@@ -109,7 +125,7 @@ type MouseEvent struct {
 	Button int
 	X      int
 	Y      int
-	Press  bool
+	Action MouseAction
 }
 
 type Event struct {
@@ -130,7 +146,7 @@ var defaultBorders = BorderChars{
 }
 
 func NewBox(id string, rect Rect, style Style, children ...*Element) *Element {
-	computedStyle, err := getStyle(&style)
+	computedStyle, err := getStyle(&style, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -146,17 +162,19 @@ func NewBox(id string, rect Rect, style Style, children ...*Element) *Element {
 	}
 }
 
-func NewButton(id string, rect Rect, label string, style Style, onClick func(*Element, MouseEvent)) *Element {
-	computedStyle, err := getStyle(&style)
+func NewButton(id string, rect Rect, label string, style Style, onClick func(*Element, MouseEvent), onMouseEnter func(*Element, MouseEvent), onMouseOut func(*Element, MouseEvent)) *Element {
+	computedStyle, err := getStyle(&style, 0)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:      id,
-		Kind:    ElementButton,
-		Rect:    rect,
-		Label:   label,
-		OnClick: onClick,
+		ID:           id,
+		Kind:         ElementButton,
+		Rect:         rect,
+		Label:        label,
+		OnClick:      onClick,
+		OnMouseEnter: onMouseEnter,
+		OnMouseOut:   onMouseOut,
 		State: State{
 			Visible: true,
 		},
@@ -165,7 +183,7 @@ func NewButton(id string, rect Rect, label string, style Style, onClick func(*El
 }
 
 func NewInput(id string, rect Rect, placeholder string, style Style, onInput func(*Element, KeyEvent)) *Element {
-	computedStyle, err := getStyle(&style)
+	computedStyle, err := getStyle(&style, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -183,7 +201,7 @@ func NewInput(id string, rect Rect, placeholder string, style Style, onInput fun
 }
 
 func NewText(id string, rect Rect, style Style, text string) *Element {
-	computedStyle, err := getStyle(&style)
+	computedStyle, err := getStyle(&style, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -200,7 +218,7 @@ func NewText(id string, rect Rect, style Style, text string) *Element {
 }
 
 func NewImage(id string, rect Rect, style Style) *Element {
-	computedStyle, err := getStyle(&style)
+	computedStyle, err := getStyle(&style, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -220,7 +238,7 @@ func AddElement(node *Element, children ...*Element) *Element {
 	return node
 }
 
-func getStyle(style *Style) (Style, error) {
+func getStyle(style *Style, depth int) (Style, error) {
 	if style.Border == Auto {
 		setBorderChars(style)
 	} else {
@@ -239,6 +257,28 @@ func getStyle(style *Style) (Style, error) {
 
 	style.fgColor = fgColor
 	style.bgColor = bgColor
+
+	if depth >= 1 {
+		style.Hover = nil
+		style.Press = nil
+		return *style, nil
+	}
+
+	if style.Hover != nil {
+		hoverStyle, err := getStyle(style.Hover, 1)
+		if err != nil {
+			return Style{}, nil
+		}
+		style.Hover = &hoverStyle
+	}
+
+	if style.Press != nil {
+		pressStyle, err := getStyle(style.Press, 1)
+		if err != nil {
+			return Style{}, nil
+		}
+		style.Hover = &pressStyle
+	}
 
 	return *style, nil
 }
@@ -290,4 +330,31 @@ func parseHexColor(color string) (Color, error) {
 		B:   uint8(raw),
 		Set: true,
 	}, nil
+}
+
+func resolveStyle(el *Element) *Style {
+	style := el.Style
+
+	switch {
+	case el.State.Pressed && style.Press != nil:
+		style = mergeStyle(el.Style, *el.Style.Press)
+	case el.State.Hovered && style.Hover != nil:
+		style = mergeStyle(el.Style, *el.Style.Hover)
+	}
+
+	return &style
+}
+
+func mergeStyle(base, override Style) Style {
+	if override.Fg != "" {
+		base.Fg = override.Fg
+		base.fgColor = override.fgColor
+	}
+
+	if override.Bg != "" {
+		base.Bg = override.Bg
+		base.bgColor = override.bgColor
+	}
+
+	return base
 }
