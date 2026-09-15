@@ -2,81 +2,93 @@ package tui
 
 import (
 	"encoding/base64"
-	"fmt"
 	"math"
+	"strconv"
 )
 
-type ImageSource struct {
-	ID          uint32
-	Data        []byte
-	NeedsUpload bool
-	Dimensions  ImageDimensions
-}
-
-type ImageDimensions struct {
-	Width  int
-	Height int
-}
-
 const chunkSize = 4096
+const rawChunk = chunkSize / 4 * 3 // a 4,096-character chunk of Base64 text will decode into exactly 3,072 bytes of original binary data
 const imagePlacementID = 1
 
-var currentImage ImageSource
-
-func SetImageData(image ImageSource) {
-	currentImage = image
+func (p *Program) SetImageData(image ImageSource) {
+	p.Canvas.imageData[image.ID] = &image
 }
 
-func MarkImageReupload() {
-	currentImage.NeedsUpload = true
+func (c *Canvas) markImageReupload() {
+	for _, img := range c.imageData {
+		img.NeedsUpload = true
+	}
 }
 
-func UploadImageData(cols, rows int) error {
-	encodedImageData := base64.StdEncoding.EncodeToString(currentImage.Data)
+func (c *Canvas) uploadImage(image *ImageSource) error {
+	var buf [chunkSize]byte
+	var numbuf [20]byte
+	w := &c.frame.wbuf
 
-	for offset := 0; offset < len(encodedImageData); offset += chunkSize {
-		end := min(offset+chunkSize, len(encodedImageData))
+	for offset := 0; offset < len(image.Data); offset += rawChunk {
 
-		hasMore := end < len(encodedImageData)
-		hasMoreFlag := 0
+		end := min(offset+rawChunk, len(image.Data))
 
-		chunk := encodedImageData[offset:end]
+		rawBytes := image.Data[offset:end]
+		encodedChunks := buf[:base64.StdEncoding.EncodedLen(len(rawBytes))]
+
+		base64.StdEncoding.Encode(encodedChunks, rawBytes) //encode rawBytes into chunk
+
+		hasMore := end < len(image.Data)
+
+		w.WriteString(KittyGraphicsStart)
+		if offset == 0 {
+			w.WriteString("a=t,i=")
+			w.Write(strconv.AppendUint(numbuf[:0], uint64(image.ID), 10))
+			w.WriteString(",f=100,t=d,m=")
+		} else {
+			w.WriteString("m=")
+		}
 
 		if hasMore {
-			hasMoreFlag = 1
+			w.WriteByte('1')
+		} else {
+			w.WriteByte('0')
 		}
 
-		controlBytes := fmt.Sprintf("a=t,i=%d,f=100,t=d,m=%d", currentImage.ID, hasMoreFlag)
-
-		if offset > 0 {
-			controlBytes = fmt.Sprintf("m=%d", hasMoreFlag)
-		}
-
-		if err := frame.writeOut(fmt.Sprintf("%s%s;%s%s", KittyGraphicsStart, controlBytes, chunk, KittyGraphicsEnd)); err != nil {
-			return err
-		}
+		w.WriteString(",q=2;")
+		w.Write(encodedChunks)
+		w.WriteString(KittyGraphicsEnd)
 	}
-	currentImage.NeedsUpload = false
+
+	image.NeedsUpload = false
 
 	return nil
 }
 
-func PlaceImage(x, y, cols, rows int) error {
-	controlBytes := fmt.Sprintf("a=p,i=%d,p=%d,c=%d,r=%d", currentImage.ID, imagePlacementID, cols, rows)
+func (c *Canvas) placeImage(image *ImageSource, x, y, cols, rows int) error {
+	var numbuf [20]byte
+	f := c.frame
+	w := &f.wbuf
 
-	if err := frame.writeOut(cursorPosition(y, x), fmt.Sprintf("%s%s;%s", KittyGraphicsStart, controlBytes, KittyGraphicsEnd)); err != nil {
-		return err
-	}
+	f.cursorPosition(y, x)
+
+	w.WriteString(KittyGraphicsStart)
+	w.WriteString("a=p,i=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(image.ID), 10))
+	w.WriteString(",p=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(imagePlacementID), 10))
+	w.WriteString(",c=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(cols), 10))
+	w.WriteString(",r=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(rows), 10))
+	w.WriteString(",q=2;")
+	w.WriteString(KittyGraphicsEnd)
 
 	return nil
 }
 
-func FitToRect(rect Rect) (int, int) {
-	imgW := currentImage.Dimensions.Width
-	imgH := currentImage.Dimensions.Height
+func (c *Canvas) fitToRect(el *Element) (int, int) {
+	imgW := el.ImageRef.Dimensions.Width
+	imgH := el.ImageRef.Dimensions.Height
 
-	maxCols := rect.W
-	maxRows := rect.H
+	maxCols := el.contentRect.W
+	maxRows := el.contentRect.H
 
 	if imgW <= 0 || imgH <= 0 || maxCols <= 0 || maxRows <= 0 {
 		return 1, 1

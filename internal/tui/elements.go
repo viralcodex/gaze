@@ -5,135 +5,6 @@ import (
 	"strconv"
 )
 
-type ElementKind string
-type Position string
-type Border string
-
-const (
-	ElementBox    ElementKind = "box"
-	ElementButton ElementKind = "button"
-	ElementInput  ElementKind = "input"
-	ElementImage  ElementKind = "image"
-	ElementText   ElementKind = "text"
-)
-
-const (
-	PositionAbsolute Position = "absolute"
-	PositionRelative Position = "relative"
-)
-
-const (
-	None Border = "none"
-	Auto Border = "auto"
-)
-
-type Rect struct {
-	X int
-	Y int
-	W int
-	H int
-}
-
-type BorderChars struct {
-	Top         rune
-	TopLeft     rune
-	TopRight    rune
-	Bottom      rune
-	BottomLeft  rune
-	BottomRight rune
-	Left        rune
-	Right       rune
-}
-
-type Spacing struct {
-	Top    int
-	Bottom int
-	Left   int
-	Right  int
-}
-
-type State struct {
-	Hovered  bool
-	Pressed  bool
-	Focused  bool
-	Visible  bool
-	Disabled bool
-}
-
-type Color struct {
-	R, G, B uint8
-	Set     bool
-}
-
-type Style struct {
-	Border      Border
-	BorderChars BorderChars
-	Padding     Spacing
-	Margin      Spacing
-	Position    Position
-	Fg          string
-	Bg          string
-	fgColor     Color
-	bgColor     Color
-
-	Hover *Style
-	Press *Style
-}
-
-type EventStyle struct {
-	Border      Border
-	BorderChars BorderChars
-	Padding     Spacing
-	Margin      Spacing
-	Position    Position
-	Fg          string
-	Bg          string
-	fgColor     Color
-	bgColor     Color
-}
-
-type Element struct {
-	ID           string
-	Rect         Rect
-	ComputedRect Rect
-	ContentRect  Rect
-	Label        string
-	Placeholder  string
-
-	Kind     ElementKind
-	State    State
-	Style    Style
-	Children []*Element
-
-	OnClick      func(*Element, MouseEvent)
-	OnMouseEnter func(*Element, MouseEvent)
-	OnMouseOut   func(*Element, MouseEvent)
-	OnInput      func(*Element, KeyEvent)
-}
-
-type TerminalDimensions struct {
-	Width  int
-	Height int
-}
-
-type KeyEvent struct {
-	Buffer []byte
-	N      int
-}
-
-type MouseEvent struct {
-	Button int
-	X      int
-	Y      int
-	Action MouseAction
-}
-
-type Event struct {
-	Kind       string
-	KeyEvent   KeyEvent
-	MouseEvent MouseEvent
-}
-
 var defaultBorders = BorderChars{
 	Top:         '─',
 	TopLeft:     '┌',
@@ -145,100 +16,116 @@ var defaultBorders = BorderChars{
 	Right:       '│',
 }
 
-func NewBox(id string, rect Rect, style Style, children ...*Element) *Element {
-	computedStyle, err := getStyle(&style, 0)
+func NewBox(props BoxProps, children ...*Element) *Element {
+	computedStyle, err := getStyle(&props.Style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:       id,
-		Kind:     ElementBox,
-		Rect:     rect,
-		Children: children,
-		State: State{
+		ID:       props.ID,
+		kind:     Box,
+		Rect:     props.Rect,
+		children: children,
+		state: state{
 			Visible: true,
 		},
-		Style: computedStyle,
+		Style:  computedStyle,
+		Layout: props.Layout,
+		Draw:   drawBox,
 	}
 }
 
-func NewButton(id string, rect Rect, label string, style Style, onClick func(*Element, MouseEvent), onMouseEnter func(*Element, MouseEvent), onMouseOut func(*Element, MouseEvent)) *Element {
-	computedStyle, err := getStyle(&style, 0)
+func NewButton(props ButtonProps) *Element {
+	computedStyle, err := getStyle(&props.Style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:           id,
-		Kind:         ElementButton,
-		Rect:         rect,
-		Label:        label,
-		OnClick:      onClick,
-		OnMouseEnter: onMouseEnter,
-		OnMouseOut:   onMouseOut,
-		State: State{
+		ID:           props.ID,
+		kind:         Button,
+		Rect:         props.Rect,
+		Label:        props.Label,
+		OnClick:      props.OnClick,
+		OnMouseEnter: props.OnMouseEnter,
+		OnMouseOut:   props.OnMouseOut,
+		state: state{
 			Visible: true,
 		},
-		Style: computedStyle,
+		Style:  computedStyle,
+		Layout: props.Layout,
+		Draw:   drawButton,
 	}
 }
 
-func NewInput(id string, rect Rect, placeholder string, style Style, onInput func(*Element, KeyEvent)) *Element {
-	computedStyle, err := getStyle(&style, 0)
+func NewInput(props InputProps) *Element {
+	computedStyle, err := getStyle(&props.Style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:          id,
-		Kind:        ElementInput,
-		Rect:        rect,
-		Placeholder: placeholder,
-		OnInput:     onInput,
-		State: State{
+		ID:          props.ID,
+		kind:        Input,
+		Rect:        props.Rect,
+		Placeholder: props.Placeholder,
+		MaxLength:   props.MaxLength,
+		state: state{
 			Visible: true,
 		},
-		Style: computedStyle,
+		inputState: InputState{
+			Text:   []rune{},
+			Cursor: 0,
+		},
+		Style:   computedStyle,
+		Layout:  props.Layout,
+		Draw:    drawInput,
+		OnInput: props.OnInput,
 	}
 }
 
-func NewText(id string, rect Rect, style Style, text string) *Element {
-	computedStyle, err := getStyle(&style, 0)
+func NewText(props TextProps) *Element {
+	computedStyle, err := getStyle(&props.Style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:    id,
-		Kind:  ElementText,
-		Rect:  rect,
-		Label: text,
-		State: State{
+		ID:    props.ID,
+		kind:  Text,
+		Rect:  props.Rect,
+		Label: props.Text,
+		state: state{
 			Visible: true,
 		},
-		Style: computedStyle,
+		Style:  computedStyle,
+		Layout: props.Layout,
+		Draw:   drawText,
 	}
 }
 
-func NewImage(id string, rect Rect, style Style) *Element {
-	computedStyle, err := getStyle(&style, 0)
+func NewImage(props ImageProps) *Element {
+	computedStyle, err := getStyle(&props.Style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:   id,
-		Kind: ElementImage,
-		Rect: rect,
-		State: State{
+		ID:       props.ID,
+		kind:     Image,
+		ImageRef: props.ImageRef,
+		Rect:     props.Rect,
+		state: state{
 			Visible: true,
 		},
-		Style: computedStyle,
+		Style:  computedStyle,
+		Layout: props.Layout,
+		Draw:   drawImage,
 	}
 }
 
 func AddElement(node *Element, children ...*Element) *Element {
-	node.Children = append(node.Children, children...)
+	node.children = append(node.children, children...)
 	return node
 }
 
-func getStyle(style *Style, depth int) (Style, error) {
+func getStyle(style *Style) (Style, error) {
 	if style.Border == Auto {
 		setBorderChars(style)
 	} else {
@@ -258,29 +145,51 @@ func getStyle(style *Style, depth int) (Style, error) {
 	style.fgColor = fgColor
 	style.bgColor = bgColor
 
-	if depth >= 1 {
-		style.Hover = nil
-		style.Press = nil
-		return *style, nil
-	}
-
 	if style.Hover != nil {
-		hoverStyle, err := getStyle(style.Hover, 1)
+		err := getStateStyle(style.Hover)
 		if err != nil {
-			return Style{}, nil
+			return Style{}, err
 		}
-		style.Hover = &hoverStyle
 	}
 
 	if style.Press != nil {
-		pressStyle, err := getStyle(style.Press, 1)
+		err := getStateStyle(style.Press)
 		if err != nil {
-			return Style{}, nil
+			return Style{}, err
 		}
-		style.Hover = &pressStyle
 	}
 
 	return *style, nil
+}
+
+func getStateStyle(style *StateStyle) error {
+	if style == nil {
+		return nil
+	}
+
+	var err error
+
+	style.fgColor, err = parseHexColor(style.Fg)
+	if err != nil {
+		return err
+	}
+
+	style.bgColor, err = parseHexColor(style.Bg)
+	return err
+}
+
+func mergeStyle(base Style, override StateStyle) Style {
+	if override.Fg != "" {
+		base.Fg = override.Fg
+		base.fgColor = override.fgColor
+	}
+
+	if override.Bg != "" {
+		base.Bg = override.Bg
+		base.bgColor = override.bgColor
+	}
+
+	return base
 }
 
 func setBorderChars(style *Style) {
@@ -314,7 +223,7 @@ func parseHexColor(color string) (Color, error) {
 	if color == "" {
 		return Color{}, nil
 	}
-	if len(color) > 7 || color[0] != '#' {
+	if len(color) != 7 || color[0] != '#' {
 		return Color{}, fmt.Errorf("Invalid Hex Color format")
 	}
 
@@ -332,29 +241,20 @@ func parseHexColor(color string) (Color, error) {
 	}, nil
 }
 
+// resolves style at runtime
 func resolveStyle(el *Element) *Style {
 	style := el.Style
 
 	switch {
-	case el.State.Pressed && style.Press != nil:
+	case el.state.Pressed && style.Press != nil:
 		style = mergeStyle(el.Style, *el.Style.Press)
-	case el.State.Hovered && style.Hover != nil:
+	case el.state.Hovered && style.Hover != nil:
 		style = mergeStyle(el.Style, *el.Style.Hover)
 	}
 
+	if el.Style.Position != Absolute && el.Style.Position != Relative {
+		el.Style.Position = Relative
+	}
+
 	return &style
-}
-
-func mergeStyle(base, override Style) Style {
-	if override.Fg != "" {
-		base.Fg = override.Fg
-		base.fgColor = override.fgColor
-	}
-
-	if override.Bg != "" {
-		base.Bg = override.Bg
-		base.bgColor = override.bgColor
-	}
-
-	return base
 }
