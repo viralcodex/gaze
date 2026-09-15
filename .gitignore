@@ -1,5 +1,12 @@
 AGENTS.md
 CLAUDE.md
 .env
-benchmark
+benchmark/
 Style.md
+tui-api-plan.md
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff

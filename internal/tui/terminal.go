@@ -7,49 +7,59 @@ import (
 	"golang.org/x/term"
 )
 
-func EnterAltMode() {
+func enterAltMode() {
 	fmt.Print(AltScreenEnter)
-	ClearAltScreen()
+	clearAltScreen()
 }
 
-func EnableMouseEvents() {
+func enableMouseEvents() {
 	fmt.Print(MouseClickEnable)  //enable mouse clicks
 	fmt.Print(MouseMotionEnable) //enable motion tracking
 	fmt.Print(MouseSGREnable)    //enable SGR mode
 }
 
-func ExitAltMode() {
+func exitAltMode() {
 	fmt.Print(AltScreenExit)
 }
 
-func DisableMouseEvents() {
+func disableMouseEvents() {
 	fmt.Print(MouseClickDisable)
 	fmt.Print(MouseMotionDisable)
 	fmt.Print(MouseSGRDisable)
 }
 
-func ClearAltScreen() {
-	fmt.Print("\033[4;1H")
-	fmt.Print("\033[0J")
-	fmt.Print(ClearScreen)
+func clearAltScreen() {
+	fmt.Print(ClearScreen, CursorHome)
 }
 
-func HideCursorPointer() {
+func hideCursorPointer() {
 	fmt.Print(HideCursor)
 }
 
-func ShowCursorPointer() {
+func showCursorPointer() {
 	fmt.Print(ShowCursor)
 }
 
-func GetTerminalDimensions() (TerminalDimensions, error) {
-    width, height, err := term.GetSize(int(os.Stdout.Fd()))
-    if err != nil {
-        return TerminalDimensions{}, err
-    }
+func setCursorShape(c Cursor) {
+	fmt.Print(cursorEscape(c))
+}
 
-    return TerminalDimensions{
-        Width:  width,
-        Height: height,
-    }, nil
+func beginSynchronizedUpdate() {
+	fmt.Print(BeginSynchronizedUpdate)
+}
+
+func endSynchronizedUpdate() {
+	fmt.Print(EndSynchronizedUpdate)
+}
+
+func getTerminalDimensions() (TerminalDimensions, error) {
+	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return TerminalDimensions{}, err
+	}
+
+	return TerminalDimensions{
+		Width:  width,
+		Height: height,
+	}, nil
 }

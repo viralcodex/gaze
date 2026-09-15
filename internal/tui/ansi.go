@@ -26,12 +26,16 @@ const (
 	CursorPosition       = CSI + "%d;%dH"
 	PointerCursor        = OSC + "22;pointer" + bel
 	DefaultCursor        = OSC + "22;" + bel
+	TextCursor           = OSC + "22;text" + bel
 	ShowCursor           = CSI + "?25h"
 	HideCursor           = CSI + "?25l"
 	ForegroundColor      = CSI + "38;2;%d;%d;%dm"
 	BackgroundColor      = CSI + "48;2;%d;%d;%dm"
 	ResetBackground      = CSI + "49m"
 	ResetStyle           = CSI + "0m"
+
+	BeginSynchronizedUpdate = CSI + "?2026h"
+	EndSynchronizedUpdate   = CSI + "?2026l"
 )
 
 func foregroundColor(color Color) string {
@@ -46,4 +50,15 @@ func backgroundColor(color Color) string {
 		return ""
 	}
 	return fmt.Sprintf(BackgroundColor, color.R, color.G, color.B)
+}
+
+func cursorEscape(c Cursor) string {
+	switch c {
+	case CursorPointer:
+		return PointerCursor
+	case CursorText:
+		return TextCursor
+	default:
+		return DefaultCursor
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	_ "image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 // it changes internally (cropped, rotate, filter, etc)
 // terminal state changes (restart, UI changes, etc)
 
-type Image struct {
+type ImageData struct {
 	Id         uint32
 	FileName   string
 	Path       string
@@ -47,29 +48,17 @@ var nextImageID uint32
 
 var allowedImgTypes = []string{".jpg", ".jpeg", ".png", ".webp"}
 
-func (img Image) getImgSource() tui.ImageSource {
-	return tui.ImageSource{
-		ID:          img.Id,
-		Data:        img.Data,
-		NeedsUpload: true,
-		Dimensions: tui.ImageDimensions{
-			Width:  img.Dimensions.Width,
-			Height: img.Dimensions.Height,
-		},
-	}
-}
-
-func LoadImage(path string) (Image, error) {
+func loadImage(path string) (ImageData, error) {
 	fileName := filepath.Base(path)
 
 	if !verifyFileType(path) {
-		return Image{}, fmt.Errorf("unsupported image type for file: %s", fileName)
+		return ImageData{}, fmt.Errorf("unsupported image type for file: %s", fileName)
 	}
 
 	imgData, err := os.ReadFile(path)
 
 	if err != nil {
-		return Image{}, fmt.Errorf("read image %q: %w", path, err)
+		return ImageData{}, fmt.Errorf("read image %q: %w", path, err)
 	}
 
 	imgReader := bytes.NewReader(imgData)
@@ -77,16 +66,16 @@ func LoadImage(path string) (Image, error) {
 	config, format, err := image.DecodeConfig(imgReader)
 
 	if err != nil {
-		return Image{}, fmt.Errorf("error decoding image config: %s", fileName)
+		return ImageData{}, fmt.Errorf("error decoding image config: %s:%v", fileName, err)
 	}
 
 	if format != "png" {
 		imgData, err = convertToPng(imgReader, fileName)
 		if err != nil {
-			return Image{}, err
+			return ImageData{}, err
 		}
 	}
-	return Image{
+	return ImageData{
 		Id:       newImageID(),
 		FileName: fileName,
 		Path:     path,
@@ -127,28 +116,25 @@ func verifyFileType(path string) bool {
 	return false
 }
 
-func sendImageData() {
-	tui.SetImageData(img.getImgSource())
+func registerImage() {
+	program.SetImageData(terminalState.ImageData.getImgSource())
 }
 
-func getImageRect() {
-	cols, rows := tui.FitToRect(tui.Rect{
-		Y: 4,
-		W: terminalState.Dimensions.Width,
-		H: terminalState.Dimensions.Height - 5,
-	})
-	img.Rect = ImageRect{
-		Cols: cols,
-		Rows: rows,
+func (img ImageData) getImgSource() tui.ImageSource {
+	return tui.ImageSource{
+		ID:          img.Id,
+		Data:        img.Data,
+		NeedsUpload: true,
 	}
 }
 
 // these ops send the updated image data to tui (rendered = false)
 func zoomImage(el *tui.Element) {
+	el.Label = "--clicked--"
 }
 
 func rotateImage(el *tui.Element) {
-
+	el.Label = "--clicked--"
 }
 
 func newImageID() uint32 {
