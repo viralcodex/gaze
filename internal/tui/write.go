@@ -6,20 +6,36 @@ import (
 	"strconv"
 )
 
-func (b *Buffer) fill(rect Rect, r rune, cell Cell) {
+func (dc *DrawContext) fill(rect Rect, r rune, cell Cell) {
 	for y := rect.Y; y < rect.Y+rect.H; y++ {
 		for x := rect.X; x < rect.X+rect.W; x++ {
-			b.set(x, y, r, cell)
+			dc.set(x, y, r, cell)
 		}
 	}
 }
 
-func (b *Buffer) set(x, y int, r rune, cell Cell) {
+func (dc *DrawContext) set(x, y int, r rune, cell Cell) {
+	dc.Canvas.buff.set(x, y, r, cell, dc.clip)
+}
+
+func (b *Buffer) set(x, y int, r rune, cell Cell, clipRect Rect) {
 	if x < 0 || y < 0 || x >= b.Width || y >= b.Height {
 		return
 	}
+
+	if x < clipRect.X || y < clipRect.Y || x >= clipRect.X+clipRect.W || y >= clipRect.Y+clipRect.H {
+		return
+	}
+
 	cell.Rune = r
 	b.Cells[y*b.Width+x] = cell
+}
+
+// resets the whole buffer null cells
+func (b *Buffer) reset() {
+	for i := range b.Cells {
+		b.Cells[i] = Cell{}
+	}
 }
 
 func (b *Buffer) at(x, y int) *Cell {
@@ -38,7 +54,7 @@ func (p *Program) flushFrame() error {
 				continue
 			}
 			if x != lastX+1 || y != lastY {
-				canvas.frame.cursorPosition(y, x)
+				canvas.frame.setCursorPosition(y, x)
 			}
 			if b.Fg != lastFg || b.Bg != lastBg {
 				canvas.frame.writeTo(ResetStyle, foregroundColor(b.Fg), backgroundColor(b.Bg))
@@ -51,9 +67,16 @@ func (p *Program) flushFrame() error {
 
 	//move the cursor inside the focused input box
 	if p.focused != nil && p.focused.kind == Input {
-		row := p.focused.contentRect.Y + (p.focused.contentRect.H / 2)
-		col := p.focused.contentRect.X + p.focused.inputState.Cursor - p.focused.inputState.ScrollOffset
-		canvas.frame.cursorPosition(row, col)
+		row, col := p.focused.inputState.mapCursorPos(p.focused)
+		showCursorPointer()
+		canvas.frame.setCursorPosition(row, col)
+	}
+
+	//move the cursor inside the focused text area box
+	if p.focused != nil && p.focused.kind == TextArea {
+		row, col := p.focused.inputState.mapCursorPos(p.focused)
+		showCursorPointer()
+		canvas.frame.setCursorPosition(row, col)
 	}
 
 	if err := canvas.frame.flush(os.Stdout); err != nil {
@@ -61,7 +84,7 @@ func (p *Program) flushFrame() error {
 	}
 
 	// front mirrors what is now on screen; keep back as the working copy so
-	// partial repaints draw on top of the current Canvas.frame, not a stale one.
+	// partial repaints draw on top of the current Canvas.frame.
 	copy(p.frontbuff.Cells, canvas.buff.Cells)
 
 	return nil
@@ -78,19 +101,11 @@ func (f *Frame) writeTo(parts ...string) error {
 }
 
 func (f *Frame) flush(w io.Writer) error {
-	// if _, err := f.wbuf.WriteString(BeginSynchronizedUpdate); err != nil {
-	// 	return err
-	// }
-
 	_, frameErr := f.wbuf.WriteTo(w)
-	// _, endErr := f.wbuf.WriteString(EndSynchronizedUpdate)
-	// if frameErr != nil {
-	// 	return frameErr
-	// }
 	return frameErr
 }
 
-func (f *Frame) cursorPosition(row, col int) {
+func (f *Frame) setCursorPosition(row, col int) {
 	var numbuf [20]byte
 	f.wbuf.WriteString(CSI)
 	f.wbuf.Write(strconv.AppendInt(numbuf[:0], int64(row+1), 10))

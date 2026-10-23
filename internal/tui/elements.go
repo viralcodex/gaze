@@ -16,111 +16,83 @@ var defaultBorders = BorderChars{
 	Right:       '│',
 }
 
-func NewBox(props BoxProps, children ...*Element) *Element {
-	computedStyle, err := getStyle(&props.Style)
+// newElement builds the common runtime node shared by every constructor:
+func newElement(kind ElementKind, id string, rect Rect, style Style, layout Layout, focusable bool) *Element {
+	computedStyle, err := getStyle(&style)
 	if err != nil {
 		panic(err)
 	}
 	return &Element{
-		ID:       props.ID,
-		kind:     Box,
-		Rect:     props.Rect,
-		children: children,
-		state: state{
-			Visible: true,
-		},
-		Style:  computedStyle,
-		Layout: props.Layout,
-		Draw:   drawBox,
+		ID:        id,
+		kind:      kind,
+		Rect:      rect,
+		Style:     computedStyle,
+		Layout:    layout,
+		state:     state{Visible: true},
+		Focusable: focusable,
 	}
+}
+
+func NewBox(props BoxProps, children ...*Element) *Element {
+	box := newElement(Box, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	box.children = children
+	box.Draw = drawBox
+	for _, child := range children {
+		child.Parent = box
+	}
+	return box
 }
 
 func NewButton(props ButtonProps) *Element {
-	computedStyle, err := getStyle(&props.Style)
-	if err != nil {
-		panic(err)
-	}
-	return &Element{
-		ID:           props.ID,
-		kind:         Button,
-		Rect:         props.Rect,
-		Label:        props.Label,
-		OnClick:      props.OnClick,
-		OnMouseEnter: props.OnMouseEnter,
-		OnMouseOut:   props.OnMouseOut,
-		state: state{
-			Visible: true,
-		},
-		Style:  computedStyle,
-		Layout: props.Layout,
-		Draw:   drawButton,
-	}
+	el := newElement(Button, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	el.Label = props.Label
+	el.OnClick = props.OnClick
+	el.OnMouseEnter = props.OnMouseEnter
+	el.OnMouseOut = props.OnMouseOut
+	el.Draw = drawButton
+	return el
 }
 
 func NewInput(props InputProps) *Element {
-	computedStyle, err := getStyle(&props.Style)
-	if err != nil {
-		panic(err)
-	}
-	return &Element{
-		ID:          props.ID,
-		kind:        Input,
-		Rect:        props.Rect,
-		Placeholder: props.Placeholder,
-		MaxLength:   props.MaxLength,
-		state: state{
-			Visible: true,
-		},
-		inputState: InputState{
-			Text:   []rune{},
-			Cursor: 0,
-		},
-		Style:   computedStyle,
-		Layout:  props.Layout,
-		Draw:    drawInput,
-		OnInput: props.OnInput,
-	}
+	el := newElement(Input, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	el.Placeholder = props.Placeholder
+	el.MaxLength = props.MaxLength
+	el.autoFocus = props.AutoFocus
+	el.inputState = InputState{Text: [][]rune{{}}}
+	el.OnInput = props.OnInput
+	el.Draw = drawInput
+	return el
+}
+
+func NewTextArea(props InputProps) *Element {
+	el := newElement(TextArea, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	el.Placeholder = props.Placeholder
+	el.MaxLength = props.MaxLength
+	el.autoFocus = props.AutoFocus
+	el.inputState = InputState{Line: 0, Text: [][]rune{{}}, DesiredX: -1}
+	el.OnInput = props.OnInput
+	el.Draw = drawTextArea
+	return el
 }
 
 func NewText(props TextProps) *Element {
-	computedStyle, err := getStyle(&props.Style)
-	if err != nil {
-		panic(err)
-	}
-	return &Element{
-		ID:    props.ID,
-		kind:  Text,
-		Rect:  props.Rect,
-		Label: props.Text,
-		state: state{
-			Visible: true,
-		},
-		Style:  computedStyle,
-		Layout: props.Layout,
-		Draw:   drawText,
-	}
+	el := newElement(Text, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	el.Label = props.Text
+	el.Draw = drawText
+	return el
 }
 
 func NewImage(props ImageProps) *Element {
-	computedStyle, err := getStyle(&props.Style)
-	if err != nil {
-		panic(err)
-	}
-	return &Element{
-		ID:       props.ID,
-		kind:     Image,
-		ImageRef: props.ImageRef,
-		Rect:     props.Rect,
-		state: state{
-			Visible: true,
-		},
-		Style:  computedStyle,
-		Layout: props.Layout,
-		Draw:   drawImage,
-	}
+	el := newElement(Image, props.ID, props.Rect, props.Style, props.Layout, props.Focusable)
+	el.ImageRef = props.ImageRef
+	el.Draw = drawImage
+	return el
 }
 
 func AddElement(node *Element, children ...*Element) *Element {
+	for _, child := range children {
+		child.Parent = node
+	}
 	node.children = append(node.children, children...)
 	return node
 }
@@ -154,6 +126,13 @@ func getStyle(style *Style) (Style, error) {
 
 	if style.Press != nil {
 		err := getStateStyle(style.Press)
+		if err != nil {
+			return Style{}, err
+		}
+	}
+
+	if style.Select != nil {
+		err := getStateStyle(style.Select)
 		if err != nil {
 			return Style{}, err
 		}
@@ -241,20 +220,20 @@ func parseHexColor(color string) (Color, error) {
 	}, nil
 }
 
-// resolves style at runtime
-func resolveStyle(el *Element) *Style {
-	style := el.Style
+// styleFor overlays the element's active state (press/hover/select) onto its
+// cached, inheritance-resolved base style. It walks no ancestors, so partial
+// repaints can call it as cheaply as a full draw.
+func styleFor(el *Element) Style {
+	style := el.resolvedStyle
 
 	switch {
 	case el.state.Pressed && style.Press != nil:
-		style = mergeStyle(el.Style, *el.Style.Press)
+		style = mergeStyle(style, *style.Press)
 	case el.state.Hovered && style.Hover != nil:
-		style = mergeStyle(el.Style, *el.Style.Hover)
+		style = mergeStyle(style, *style.Hover)
+	case el.state.Selected && style.Select != nil:
+		style = mergeStyle(style, *style.Select)
 	}
 
-	if el.Style.Position != Absolute && el.Style.Position != Relative {
-		el.Style.Position = Relative
-	}
-
-	return &style
+	return style
 }

@@ -12,6 +12,8 @@ type Program struct {
 	mouseState    MouseState
 	isLayoutDirty bool
 	isPaintDirty  bool
+	dirtyElements []*Element
+	postCh        chan func()
 	inbuf         EventBuffer
 	frontbuff     *Buffer
 	focused       *Element
@@ -31,10 +33,17 @@ type Canvas struct {
 	buff      *Buffer
 	frame     *Frame
 	imageData map[uint32]*ImageSource
+
+	lastPlacedImageID uint32
 }
 
-//---element structs---
+// draw context tells how much to draw
+type DrawContext struct {
+	Canvas *Canvas
+	clip   Rect
+}
 
+// ---element structs---
 type Element struct {
 	ID          string
 	Rect        Rect
@@ -42,19 +51,24 @@ type Element struct {
 	Placeholder string
 	MaxLength   int
 	Style       Style
+	Focusable   bool
 	Layout      Layout
 	ImageRef    ImageRef //set by the client, tui doesn't create this
 
-	measuredRect Rect
-	computedRect Rect
-	contentRect  Rect
-	kind         ElementKind
-	state        state
-	children     []*Element
+	measuredRect  Rect
+	computedRect  Rect
+	contentRect   Rect
+	visualLines   []visualLine
+	resolvedStyle Style // base style with inheritance applied; state is overlaid at draw time
+	kind          ElementKind
+	state         state
+	children      []*Element
+	Parent        *Element
 
 	inputState InputState
+	autoFocus  bool
 
-	Draw         func(*Element, *Canvas) error
+	Draw         func(*Element, *DrawContext) error
 	OnClick      func(*Element, MouseEvent)
 	OnMouseEnter func(*Element, MouseEvent)
 	OnMouseOut   func(*Element, MouseEvent)
@@ -66,19 +80,21 @@ type Element struct {
 // existing defaults, and nil handlers mean no callback.
 
 type BoxProps struct {
-	ID     string
-	Rect   Rect
-	Style  Style
+	ID        string
+	Rect      Rect
+	Style     Style
+	Focusable bool
+
 	Layout Layout
 }
 
 type ButtonProps struct {
-	ID     string
-	Rect   Rect
-	Label  string
-	Style  Style
-	Layout Layout
-
+	ID           string
+	Rect         Rect
+	Label        string
+	Style        Style
+	Layout       Layout
+	Focusable    bool
 	OnClick      func(*Element, MouseEvent)
 	OnMouseEnter func(*Element, MouseEvent)
 	OnMouseOut   func(*Element, MouseEvent)
@@ -89,25 +105,32 @@ type InputProps struct {
 	Rect        Rect
 	Placeholder string
 	MaxLength   int // 0 means unlimited
-	Style       Style
-	Layout      Layout
+	AutoFocus   bool
+	Focusable   bool
+
+	Style  Style
+	Layout Layout
 
 	OnInput func(*Element, KeyEvent)
 }
 
 type TextProps struct {
-	ID     string
-	Rect   Rect
-	Text   string
-	Style  Style
+	ID        string
+	Rect      Rect
+	Text      string
+	Style     Style
+	Focusable bool
+
 	Layout Layout
 }
 
 type ImageProps struct {
-	ID       string
-	Rect     Rect
-	Style    Style
-	Layout   Layout
+	ID        string
+	Rect      Rect
+	Style     Style
+	Layout    Layout
+	Focusable bool
+
 	ImageRef ImageRef
 }
 
@@ -123,11 +146,12 @@ const (
 )
 
 const (
-	Box    ElementKind = "box"
-	Button ElementKind = "button"
-	Input  ElementKind = "input"
-	Image  ElementKind = "image"
-	Text   ElementKind = "text"
+	Box      ElementKind = "box"
+	Button   ElementKind = "button"
+	Input    ElementKind = "input"
+	TextArea ElementKind = "textArea"
+	Image    ElementKind = "image"
+	Text     ElementKind = "text"
 )
 
 const (
@@ -166,8 +190,9 @@ type Style struct {
 	fgColor     Color
 	bgColor     Color
 
-	Hover *StateStyle
-	Press *StateStyle
+	Hover  *StateStyle
+	Press  *StateStyle
+	Select *StateStyle
 }
 
 type BorderChars struct {
@@ -216,17 +241,20 @@ const (
 	AlignStretch
 )
 
+type Overflow uint8
+
+const (
+	OverflowHidden Overflow = iota
+	OverflowVisible
+)
+
 type Layout struct {
 	Direction Direction
 	Justify   Justify
 	Align     Align
+	Overflow  Overflow
 	Gap       int
 	Grow      int
-}
-
-type DirectionVals struct {
-	main  []int
-	cross []int
 }
 
 // ---state structs---
@@ -234,6 +262,7 @@ type state struct {
 	Hovered  bool
 	Pressed  bool
 	Focused  bool
+	Selected bool
 	Visible  bool
 	Disabled bool
 }
@@ -257,11 +286,19 @@ type TerminalDimensions struct {
 }
 
 type InputState struct {
-	Text         []rune
-	Cursor       int
-	Row          int
-	Col          int
-	ScrollOffset int
+	Text     [][]rune
+	Line     int //this represents the current logical line of the cursor (keeps changing)
+	Col      int //this represents the current logical column of the cursor (keeps changing)
+	DesiredX int
+	Xoffset  int
+	Yoffset  int
+}
+
+// a visual row is a slice of a logical line
+type visualLine struct {
+	Line     int
+	startCol int
+	endCol   int
 }
 
 type KeyCode uint16
@@ -279,20 +316,29 @@ const (
 	KeyEnd
 	KeyTab
 	KeyEscape
+	KeyPageUp
+	KeyPageDown
+	KeyInsert
 )
 
 type KeyEvent struct {
-	Buffer  []byte //will remove later (buf, n) if not needed
-	N       int
 	KeyCode KeyCode
+	Mods    Mods //Shift, Ctrl, Alt
 	Rune    rune
 }
 
 type MouseEvent struct {
 	Button int
+	Mods   Mods //Shift, Ctrl, Alt
 	X      int
 	Y      int
 	Action MouseAction
+}
+
+type Mods struct {
+	Shift bool
+	Alt   bool
+	Ctrl  bool
 }
 
 type Event struct {
@@ -343,10 +389,14 @@ type ParseResult struct {
 }
 
 // ---events structs---
+type MouseAction uint8
+
 const (
 	MouseMove MouseAction = iota
 	MousePress
 	MouseRelease
+	MouseScrollUp
+	MouseScrollDown
 )
 
 type HitMap struct {
@@ -360,8 +410,6 @@ type MouseState struct {
 	Hovered *Element
 	Pressed *Element
 }
-
-type MouseAction uint8
 
 // ---image---
 type ImageRef struct {
