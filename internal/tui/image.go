@@ -14,16 +14,16 @@ func (p *Program) SetImageData(image ImageSource) {
 	p.Canvas.imageData[image.ID] = &image
 }
 
-func (c *Canvas) markImageReupload() {
-	for _, img := range c.imageData {
+func (dc *DrawContext) markImageReupload() {
+	for _, img := range dc.Canvas.imageData {
 		img.NeedsUpload = true
 	}
 }
 
-func (c *Canvas) uploadImage(image *ImageSource) error {
+func (dc *DrawContext) uploadImage(image *ImageSource) error {
 	var buf [chunkSize]byte
 	var numbuf [20]byte
-	w := &c.frame.wbuf
+	w := &dc.Canvas.frame.wbuf
 
 	for offset := 0; offset < len(image.Data); offset += rawChunk {
 
@@ -61,13 +61,12 @@ func (c *Canvas) uploadImage(image *ImageSource) error {
 	return nil
 }
 
-func (c *Canvas) placeImage(image *ImageSource, x, y, cols, rows int) error {
+func (dc *DrawContext) placeImage(image *ImageSource, x, y, cols, rows int) error {
 	var numbuf [20]byte
-	f := c.frame
+	f := dc.Canvas.frame
 	w := &f.wbuf
 
-	f.cursorPosition(y, x)
-
+	f.setCursorPosition(y, x)
 	w.WriteString(KittyGraphicsStart)
 	w.WriteString("a=p,i=")
 	w.Write(strconv.AppendUint(numbuf[:0], uint64(image.ID), 10))
@@ -83,7 +82,20 @@ func (c *Canvas) placeImage(image *ImageSource, x, y, cols, rows int) error {
 	return nil
 }
 
-func (c *Canvas) fitToRect(el *Element) (int, int) {
+func (dc *DrawContext) deleteImagePlacement(id uint32) {
+	var numbuf [20]byte
+	w := &dc.Canvas.frame.wbuf
+
+	w.WriteString(KittyGraphicsStart)
+	w.WriteString("a=d,d=i,i=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(id), 10))
+	w.WriteString(",p=")
+	w.Write(strconv.AppendUint(numbuf[:0], uint64(imagePlacementID), 10))
+	w.WriteString(",q=2;")
+	w.WriteString(KittyGraphicsEnd)
+}
+
+func (dc *DrawContext) fitToRect(el *Element) (int, int) {
 	imgW := el.ImageRef.Dimensions.Width
 	imgH := el.ImageRef.Dimensions.Height
 

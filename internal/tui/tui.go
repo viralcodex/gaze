@@ -17,6 +17,7 @@ func NewProgram(view func(TerminalDimensions) *Element, onResize func(TerminalDi
 	return &Program{
 		hitMap:     &HitMap{},
 		mouseState: MouseState{},
+		postCh:     make(chan func(), 16),
 		Dimensions: dimensions,
 		inbuf: EventBuffer{
 			state: Ground,
@@ -64,10 +65,18 @@ func (p *Program) Run() error {
 
 	p.Root = p.View(p.Dimensions)
 
+	p.focused = findAutoFocus(p.Root)
+	if p.focused != nil {
+		p.focused.state.Focused = true
+	}
+
 	p.setRootBounds()
 
 	p.initBuffers()
 	p.initHitMap()
+
+	hideCursorPointer()
+	defer showCursorPointer()
 
 	if err := p.render(p.Root); err != nil {
 		return err
@@ -81,6 +90,21 @@ func (p *Program) Run() error {
 		return err
 	}
 
+	return nil
+}
+
+func findAutoFocus(el *Element) *Element {
+	if el == nil {
+		return nil
+	}
+	if el.autoFocus && (el.kind == Input || el.kind == TextArea) {
+		return el
+	}
+	for _, child := range el.children {
+		if focused := findAutoFocus(child); focused != nil {
+			return focused
+		}
+	}
 	return nil
 }
 
@@ -122,7 +146,6 @@ func (p *Program) eventLoop() error {
 	p.isLayoutDirty = false
 
 	for {
-		dirtyElements := []*Element{}
 		select {
 		case _, ok := <-resizeCh:
 			if !ok {
@@ -139,27 +162,23 @@ func (p *Program) eventLoop() error {
 			}
 			switch event.Kind {
 			case Key:
-				dirty, quit := p.handleKeyEvent(event.KeyEvent)
+				quit := p.handleKeyEvent(event.KeyEvent)
 				if quit {
 					return nil
 				}
-				dirtyElements = append(dirtyElements, dirty)
 
 			case Mouse:
-				hit := p.hitMap.at(event.MouseEvent.X-1, event.MouseEvent.Y-1)
-				var clicked *Element
-				if event.MouseEvent.Action == MouseRelease && hit == p.mouseState.Pressed {
-					clicked = hit
-				}
-				dirty := p.handleMouseEvent(event.MouseEvent)
-				dirtyElements = append(dirtyElements, dirty...)
-				if p.OnDebug != nil {
-					dirtyElements = append(dirtyElements, p.OnDebug(p.debugSnapshot(event, hit, clicked))...)
-				}
+				p.handleMouseEvent(event.MouseEvent)
 			}
+
+		case fn, ok := <-p.postCh:
+			if !ok {
+				return fmt.Errorf("%s", "Something wrong with post channel")
+			}
+			fn()
 		}
-		if len(dirtyElements) > 0 {
-			if err := p.paintDirtyElements(dirtyElements); err != nil {
+		if len(p.dirtyElements) > 0 {
+			if err := p.paintDirtyElements(); err != nil {
 				return err
 			}
 		}
@@ -239,25 +258,45 @@ func (inbuf *EventBuffer) parseInputBytes() ParseResult {
 }
 
 func parseKey(buf []byte) ParseResult {
-	if !utf8.FullRune(buf) {
+	b := buf[0]
+
+	var keyCode KeyCode
+	var r rune
+	var mods Mods
+
+	switch {
+	case b == '\r' || b == '\n':
+		keyCode = KeyEnter
+	case b == '\t':
+		keyCode = KeyTab
+	case b == 0x7F || b == 0x08:
+		keyCode = KeyBackspace
+	case b >= 0x01 && b <= 0x1A: // Ctrl+A..Ctrl+Z
+		keyCode = KeyRune
+		r = rune(b + 0x60)
+		mods = Mods{Ctrl: true}
+	default:
+		if !utf8.FullRune(buf) {
+			return ParseResult{status: Incomplete}
+		}
+		var size int
+		r, size = utf8.DecodeRune(buf)
 		return ParseResult{
-			status: Incomplete,
+			event: Event{
+				Kind:     Key,
+				KeyEvent: KeyEvent{KeyCode: KeyRune, Rune: r},
+			},
+			parsed: size,
+			status: Complete,
 		}
 	}
 
-	r, size := utf8.DecodeRune(buf)
-
 	return ParseResult{
 		event: Event{
-			Kind: Key,
-			KeyEvent: KeyEvent{
-				Buffer:  append([]byte(nil), buf[:size]...),
-				N:       size,
-				KeyCode: KeyRune,
-				Rune:    r,
-			},
+			Kind:     Key,
+			KeyEvent: KeyEvent{KeyCode: keyCode, Rune: r, Mods: mods},
 		},
-		parsed: size,
+		parsed: 1,
 		status: Complete,
 	}
 }
@@ -283,17 +322,18 @@ func parseCSI(buf []byte) ParseResult {
 
 func parseMouseSGR(buf []byte) ParseResult {
 	semiColonCount := 0
-
+	semiColonIndices := make([]int, 0)
 	for i := 3; i < len(buf); i++ {
 		switch {
 		case buf[i] == 'M' || buf[i] == 'm':
-			event, ok := parseMouseEvent(string(buf[:i+1]))
+			event, ok := parseMouseEvent(buf[:i+1], semiColonIndices)
 			if !ok {
 				return ParseResult{status: Invalid, parsed: i + 1}
 			}
 			return ParseResult{event: event, status: Complete, parsed: i + 1}
 		case buf[i] == ';':
 			semiColonCount++
+			semiColonIndices = append(semiColonIndices, i)
 			if semiColonCount > 2 {
 				return ParseResult{status: Invalid, parsed: i + 1}
 			}
@@ -318,13 +358,18 @@ func parseEscapeSequence(buf []byte) ParseResult {
 
 func parseCSIKey(buf []byte) ParseResult {
 	var keyCode KeyCode
+	var ok bool
 
-	switch buf[len(buf)-1] {
-	case 'C':
-		keyCode = KeyRight
-	case 'D':
-		keyCode = KeyLeft
-	default:
+	finalByte := buf[len(buf)-1] // final byte
+	param1, param2 := parseCSIParams(buf[2 : len(buf)-1])
+
+	if finalByte == '~' {
+		keyCode, ok = parseTildeKey(param1)
+	} else {
+		keyCode, ok = parseNonTildeKey(finalByte)
+	}
+
+	if !ok {
 		return ParseResult{status: Invalid, parsed: len(buf)}
 	}
 
@@ -332,13 +377,97 @@ func parseCSIKey(buf []byte) ParseResult {
 		event: Event{
 			Kind: Key,
 			KeyEvent: KeyEvent{
-				Buffer:  append([]byte{}, buf...),
-				N:       len(buf),
 				KeyCode: keyCode,
+				Mods:    decodeMods(param2),
 			},
 		},
 		parsed: len(buf),
 		status: Complete,
+	}
+}
+
+func parseCSIParams(buf []byte) (int, int) {
+	params := []int{}
+	current := 0
+	for i := range buf {
+		if len(params) >= 2 {
+			break
+		}
+		if buf[i] == ';' {
+			params = append(params, current)
+			current = 0
+		} else if buf[i] >= '0' && buf[i] <= '9' {
+			current = current*10 + int(buf[i]-'0')
+		}
+	}
+	params = append(params, current)
+	param1, param2 := 0, 0
+	if len(params) > 0 {
+		param1 = params[0]
+	}
+	if len(params) > 1 {
+		param2 = params[1]
+	}
+	return param1, param2
+}
+
+func parseTildeKey(param int) (KeyCode, bool) {
+	switch param {
+	case 1, 7:
+		return KeyHome, true
+	case 4, 8:
+		return KeyEnd, true
+	case 5:
+		return KeyPageUp, true
+	case 6:
+		return KeyPageDown, true
+	case 2:
+		return KeyInsert, true
+	case 3:
+		return KeyDelete, true
+	default:
+		return KeyRune, false
+	}
+}
+
+func parseNonTildeKey(finalByte byte) (KeyCode, bool) {
+	switch finalByte {
+	case 'A':
+		return KeyUp, true
+	case 'B':
+		return KeyDown, true
+	case 'C':
+		return KeyRight, true
+	case 'D':
+		return KeyLeft, true
+	case 'H':
+		return KeyHome, true
+	case 'F':
+		return KeyEnd, true
+	}
+	return KeyRune, false
+}
+
+// xterm encodes the modifier param as 1 + mask (Shift=1, Alt=2, Ctrl=4).
+// wire param	param-1	bits	modifiers
+//
+//	2			1	001		Shift
+//	3			2	010		Alt
+//	4			3	011		Shift+Alt
+//	5			4	100		Ctrl
+//	6			5	101		Ctrl+Shift
+//	7			6	110		Ctrl+Alt
+//	8			7	111		Ctrl+Alt+Shift
+func decodeMods(param int) Mods {
+	if param <= 1 {
+		return Mods{}
+	}
+
+	mask := param - 1
+	return Mods{
+		Shift: mask&1 != 0,
+		Alt:   mask&2 != 0,
+		Ctrl:  mask&4 != 0,
 	}
 }
 

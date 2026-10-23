@@ -3,28 +3,68 @@ package tui
 func (p *Program) render(el *Element) error {
 	p.measureLayout(el)
 	p.arrangeLayout(el)
+	p.resolveStyles(el, nil)
 	p.rebuildHitMap(el)
 
-	p.Canvas.buff.fill(Rect{W: p.Dimensions.Width, H: p.Dimensions.Height}, ' ', Cell{})
+	p.Canvas.buff.reset()
 
 	return p.drawFrame(el)
 }
 
+// resolveStyles caches each element's base style with parent inheritance folded
+// in, top-down so a parent is resolved before its children read from it. Only
+// Fg/Bg cascade; state overrides stay local and are applied by styleFor at
+// draw time. Runs on full renders only, so partial repaints reuse the cache.
+func (p *Program) resolveStyles(el *Element, parent *Style) {
+	if el == nil {
+		return
+	}
+
+	style := el.Style
+	if parent != nil {
+		if style.Fg == "" {
+			style.Fg = parent.Fg
+			style.fgColor = parent.fgColor
+		}
+		if style.Bg == "" {
+			style.Bg = parent.Bg
+			style.bgColor = parent.bgColor
+		}
+	}
+	el.resolvedStyle = style
+
+	for _, child := range el.children {
+		p.resolveStyles(child, &el.resolvedStyle)
+	}
+}
+
 func (p *Program) drawFrame(el *Element) error {
-	if err := p.drawElements(el); err != nil {
+	if err := p.drawElements(el, p.Root.computedRect); err != nil {
 		return err
 	}
 	return p.flushFrame()
 }
 
-func (p *Program) paintDirtyElements(elements []*Element) error {
-	for _, el := range elements {
-		if err := p.drawElements(el); err != nil {
+func (p *Program) paintDirtyElements() error {
+	for _, el := range p.dirtyElements {
+		if err := p.drawElements(el, p.clipForElement(el)); err != nil {
 			return err
 		}
 	}
-
+	p.dirtyElements = p.dirtyElements[:0]
 	return p.flushFrame()
+}
+
+// clipForElement reconstructs the clip an element would receive during a full
+// draw, by walking up and intersecting the content rect of every container above it.
+func (p *Program) clipForElement(el *Element) Rect {
+	clip := Rect{W: p.Dimensions.Width, H: p.Dimensions.Height}
+	for a := el.Parent; a != nil; a = a.Parent {
+		if a.Layout.Overflow == OverflowHidden {
+			clip = clipRect(clip, a.contentRect)
+		}
+	}
+	return clip
 }
 
 // bottom up element size measurement (explicit Rect takes top predence and overrides measured values)
@@ -41,8 +81,8 @@ func (p *Program) measureLayout(el *Element) {
 		if child.Style.Position == Absolute { //absolute elements don't participate in parent layouting
 			continue
 		}
-		mainMax += dir.getMain(&child.measuredRect)
-		crossMax = max(crossMax, dir.getCross(&child.measuredRect))
+		mainMax += dir.getMain(&child.measuredRect) + dir.getMainMargin(child)
+		crossMax = max(crossMax, dir.getCross(&child.measuredRect)+dir.getCrossMargin(child))
 		n++
 	}
 
@@ -56,14 +96,14 @@ func (p *Program) measureLayout(el *Element) {
 	//add gaps between children
 	mainMax += el.Layout.Gap * (max(1, n) - 1)
 
-	dirPadding := dir.getDirectedPadding(el)
+	dirPaddingMain, dirPaddingCross := dir.getDirectedPadding(el)
 
 	if el.Style.Border == Auto {
 		border = 1
 	}
 
-	finalMain := mainMax + dirPadding.main[0] + 2*border
-	finalCross := crossMax + dirPadding.cross[0] + 2*border
+	finalMain := mainMax + dirPaddingMain + 2*border
+	finalCross := crossMax + dirPaddingCross + 2*border
 
 	el.measuredRect = dir.getMeasuredRect(finalMain, finalCross)
 
@@ -88,23 +128,47 @@ func (p *Program) arrangeLayout(el *Element) {
 	}
 }
 
-func (p *Program) drawElements(el *Element) error {
+func (p *Program) drawElements(el *Element, clip Rect) error {
 	if el == nil || !el.state.Visible {
 		return nil
 	}
 
 	if el.Draw != nil {
-		if err := el.Draw(el, &p.Canvas); err != nil {
+		dc := DrawContext{clip: clip, Canvas: &p.Canvas}
+		if err := el.Draw(el, &dc); err != nil {
 			return err
 		}
 	}
 
+	childClip := clip
+	if el.Layout.Overflow == OverflowHidden {
+		childClip = clipRect(clip, el.contentRect)
+	}
+
 	for _, child := range el.children {
-		if err := p.drawElements(child); err != nil {
+		if err := p.drawElements(child, childClip); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func clipRect(clip Rect, parentRect Rect) Rect {
+	x0 := max(clip.X, parentRect.X)
+	y0 := max(clip.Y, parentRect.Y)
+	x1 := min(clip.X+clip.W, parentRect.X+parentRect.W)
+	y1 := min(clip.Y+clip.H, parentRect.Y+parentRect.H)
+
+	if x0 >= x1 || y0 >= y1 {
+		return Rect{}
+	}
+
+	return Rect{
+		X: x0,
+		Y: y0,
+		W: x1 - x0,
+		H: y1 - y0,
+	}
 }
 
 func (p *Program) rebuildHitMap(el *Element) {
@@ -150,7 +214,7 @@ func (p *Program) arrangeChildren(el *Element) {
 		if child.Style.Position == Absolute {
 			continue // out of flow, don't count it (same as measure)
 		}
-		usedMain += dir.getMain(&child.measuredRect)
+		usedMain += dir.getMain(&child.measuredRect) + dir.getMainMargin(child)
 		totalGrow += child.Layout.Grow
 		n++
 	}
@@ -178,12 +242,17 @@ func (p *Program) arrangeChildren(el *Element) {
 			share := (freeMain * childGrow) / totalGrow
 			childMain += share
 		}
+		mainMargin := dir.getMainMargin(child)
+		leadMargin := dir.getMainMarginLead(child)
+
+		mainPos += leadMargin
 		dir.setMain(&child.computedRect, childMain)
 		dir.setMainPos(&child.computedRect, mainPos)
 
 		placeCross(el, child)
 
-		mainPos += childMain + gap + el.Layout.Gap //move position ahead
+		// advance past the child, its trailing margin, then the gaps
+		mainPos += childMain + (mainMargin - leadMargin) + gap + el.Layout.Gap
 	}
 
 	// absolute children sit out of flow: positioned against the parent's
@@ -193,8 +262,8 @@ func (p *Program) arrangeChildren(el *Element) {
 			continue
 		}
 		child.computedRect = Rect{
-			X: el.contentRect.X + child.Rect.X,
-			Y: el.contentRect.Y + child.Rect.Y,
+			X: el.contentRect.X + child.Rect.X + child.Style.Margin.Left,
+			Y: el.contentRect.Y + child.Rect.Y + child.Style.Margin.Top,
 			W: child.measuredRect.W,
 			H: child.measuredRect.H,
 		}
@@ -223,16 +292,22 @@ func justifyOffsets(justify Justify, free int, n int) (int, int) {
 func placeCross(el *Element, child *Element) {
 	dir := el.Layout.Direction
 	contentCross := dir.getCross(&el.contentRect)   // gives width/height
-	crossPos := dir.getCrossPos(&el.contentRect)    // gives starting X or Y
+	crossStart := dir.getCrossPos(&el.contentRect)  // gives starting X or Y
 	childCross := dir.getCross(&child.measuredRect) // gives width/height (of child)
+
+	crossMargin := dir.getCrossMargin(child)
+	leadMargin := dir.getCrossMarginLead(child)
+	trailMargin := crossMargin - leadMargin
+
+	crossPos := crossStart + leadMargin // AlignStart default
 
 	switch el.Layout.Align {
 	case AlignCenter:
-		crossPos += max(0, (contentCross-childCross)/2)
+		crossPos = crossStart + leadMargin + max(0, (contentCross-childCross-crossMargin)/2)
 	case AlignEnd:
-		crossPos += max(0, contentCross-childCross)
+		crossPos = crossStart + max(0, contentCross-childCross-trailMargin)
 	case AlignStretch:
-		childCross = contentCross
+		childCross = max(0, contentCross-crossMargin)
 	}
 	dir.setCrossPos(&child.computedRect, crossPos)
 	dir.setCross(&child.computedRect, childCross)
@@ -252,4 +327,24 @@ func getContentRect(el *Element) Rect {
 		W: max(0, el.computedRect.W-2*border-padding.Left-padding.Right),
 		H: max(0, el.computedRect.H-2*border-padding.Top-padding.Bottom),
 	}
+}
+
+func (p *Program) MarkDirty(el ...*Element) {
+	p.dirtyElements = append(p.dirtyElements, el...)
+}
+
+func (p *Program) RequestRender() {
+	p.isLayoutDirty = true
+}
+
+func (p *Program) SetSelected(el *Element, selected bool) {
+	if el == nil || el.state.Selected == selected {
+		return
+	}
+	el.state.Selected = selected
+	p.MarkDirty(el)
+}
+
+func (p *Program) Post(fn func()) {
+	p.postCh <- fn
 }
